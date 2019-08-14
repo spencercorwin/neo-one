@@ -286,15 +286,6 @@ aliases:
           name: Add .nyc_output Directory
           command: mkdir .nyc_output
       - run:
-          name: Compile overlay
-          command: yarn website:start-overlay-prod
-      - run:
-          name: Compile tools
-          command: yarn website:start-tools-prod-ci
-      - run:
-          name: Compile workers
-          command: yarn website:start-workers-prod-ci
-      - run:
           name: Try start-static-prod
           command: yarn website:start-static-prod
       - run:
