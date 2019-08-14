@@ -251,31 +251,6 @@ aliases:
           path: cypress/screenshots
 
   - &cypress10
-    # working_directory: ~/neo-one
-    # steps:
-    #   - checkout
-    #   - restore-cache: *restore-yarn-cache-10
-    #   - run: *yarn
-    #   - save-cache: *save-yarn-cache-10
-    #   - run:
-    #       name: Add .nyc_output Directory
-    #       command: mkdir .nyc_output
-    #   - run:
-    #       name: Tests
-    #       command: yarn test:cypress --coverage
-    #   - run:
-    #       name: Coverage Report
-    #       command: yarn nyc report --reporter=json
-    #       when: always
-    #   - run:
-    #       name: Upload Unit Test Coverage
-    #       command: yarn run codecov -f coverage/coverage-final.json -F cypress
-    #       when: always
-    #   - store_artifacts:
-    #       path: cypress/videos
-    #   - store_artifacts:
-    #       path: cypress/screenshots
-    #         - &cypress10
     working_directory: ~/neo-one
     steps:
       - checkout
@@ -286,8 +261,17 @@ aliases:
           name: Add .nyc_output Directory
           command: mkdir .nyc_output
       - run:
-          name: Try start-static-prod
-          command: yarn website:start-static-prod
+          name: Start testRunner
+          command: yarn website:start-testRunner-prod-ci
+      - run:
+          name: Start preview
+          command: yarn website:start-preview-prod-ci
+      - run:
+          name: Start react-static
+          command: yarn website:start-static-prod-ci
+      - run:
+          name: Try Cypress tests
+          command: yarn test:cypress-express
       - run:
           name: Coverage Report
           command: yarn nyc report --reporter=json
