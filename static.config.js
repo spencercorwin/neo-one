@@ -2,11 +2,17 @@ import path from 'path';
 import _ from 'lodash';
 
 require('ts-node/register/transpile-only');
-const { getCourses } = require('./packages/neo-one-website/src/loaders/coursesLoader');
+const {
+  getCourses,
+} = require('./packages/neo-one-website/src/loaders/coursesLoader');
 const { getDocs } = require('./packages/neo-one-website/src/utils/getDocs');
-const { getTutorial } = require('./packages/neo-one-website/src/utils/getTutorial');
+const {
+  getTutorial,
+} = require('./packages/neo-one-website/src/utils/getTutorial');
 const { getBlogs } = require('./packages/neo-one-website/src/utils/getBlogs');
-const { getReferences } = require('./packages/neo-one-website/src/utils/getReferences');
+const {
+  getReferences,
+} = require('./packages/neo-one-website/src/utils/getReferences');
 
 const ROOT_DIR = path.resolve(__dirname);
 const ROOT = path.resolve(ROOT_DIR, 'packages', 'neo-one-website');
@@ -24,7 +30,13 @@ export default {
     title: 'React Static',
   }),
   getRoutes: async () => {
-    const [courses, docs, tutorial, { blogs, blogAll }, references] = await Promise.all([
+    const [
+      courses,
+      docs,
+      tutorial,
+      { blogs, blogAll },
+      references,
+    ] = await Promise.all([
       getCourses(),
       getDocs(),
       getTutorial(),
@@ -116,6 +128,7 @@ export default {
   extractCssChunks: true,
   productionSourceMaps: true,
   disablePreload: true,
+  maxThreads: 1,
   plugins: [
     path.resolve(ROOT_DIR, 'scripts', 'website', 'webpack', 'plugin'),
     'react-static-plugin-emotion',
