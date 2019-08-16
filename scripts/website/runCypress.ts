@@ -92,25 +92,31 @@ process.on('SIGTERM', () => {
   shutdown(0);
 });
 
-const run = async ({ report, coverage }: { readonly report: boolean; readonly coverage: boolean }) => {
-  console.log('$ yarn website:start:prod-builds');
-  console.log('$ yarn website:start:prod');
-  const buildProc = execa('yarn', ['website:start:prod-builds']);
-  const startProc = execa('yarn', ['website:start:prod']);
-  mutableCleanup.push(
-    async () => {
-      startProc.kill();
-      await startProc;
-    },
-    async () => {
-      buildProc.kill();
-      await buildProc;
-    },
-  );
+const createProcess = (command: string) => {
+  console.log(`$ yarn ${command}`);
+  const returnProc = execa('yarn', [command]);
+  mutableCleanup.push(async () => {
+    returnProc.kill();
+    await returnProc;
+  });
+  return returnProc;
+};
 
-  await buildProc;
-  const THREE_MINUTES = 3 * 60 * 1000;
-  await timer(THREE_MINUTES).toPromise();
+const run = async ({ report, coverage }: { readonly report: boolean; readonly coverage: boolean }) => {
+  const overlayProc = createProcess('website:start-overlay-prod');
+  await overlayProc;
+  const workersProc = createProcess('website:start-workers-prod-ci');
+  await workersProc;
+  const toolsProc = createProcess('website:start-tools-prod-ci');
+  await toolsProc;
+  const previewProc = createProcess('website:start-preview-prod-ci');
+  await timer(10 * 60 * 1000);
+  const testRunnerProc = createProcess('website:start-testRunner-prod-ci');
+  await timer(8 * 60 * 1000);
+  const serverProc = createProcess('website:start-server');
+  await timer(10 * 60 * 1000);
+  const staticProc = createProcess('website:start-static-prod-ci');
+  await timer(40 * 60 * 1000).toPromise();
   await runCypress({ report, coverage });
 };
 
