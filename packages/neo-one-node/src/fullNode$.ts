@@ -9,8 +9,6 @@ import { Node, NodeEnvironment, NodeOptions } from '@neo-one/node-protocol';
 import { storage as levelupStorage } from '@neo-one/node-storage-levelup';
 import { vm } from '@neo-one/node-vm';
 import { finalize, neverComplete } from '@neo-one/utils';
-import { JaegerTraceExporter } from '@opencensus/exporter-jaeger';
-import { PrometheusStatsExporter } from '@opencensus/exporter-prometheus';
 import { AbstractLevelDOWN } from 'abstract-leveldown';
 import LevelDOWN, { LevelDownOpenOptions } from 'leveldown';
 import LevelUp from 'levelup';
@@ -104,30 +102,30 @@ FullNodeOptions): Observable<any> => {
   );
 
   const node$ = defer(async () => {
-    if (environment.telemetry !== undefined) {
-      const exporter = new PrometheusStatsExporter({
-        port: environment.telemetry.port,
-        startServer: true,
-      });
+    // if (environment.telemetry !== undefined) {
+    //   const exporter = new PrometheusStatsExporter({
+    //     port: environment.telemetry.port,
+    //     startServer: true,
+    //   });
 
-      globalStats.registerExporter(exporter);
-      finalize(() => {
-        exporter.stopServer();
-        globalStats.unregisterExporter(exporter);
-      });
-    }
+    //   globalStats.registerExporter(exporter);
+    //   finalize(() => {
+    //     exporter.stopServer();
+    //     globalStats.unregisterExporter(exporter);
+    //   });
+    // }
 
-    if (environment.tracing !== undefined) {
-      const exporter = new JaegerTraceExporter({
-        serviceName: 'NEO-ONE',
-        host: 'localhost',
-        port: environment.tracing.port,
-        bufferTimeout: 100,
-      });
+    // if (environment.tracing !== undefined) {
+    //   const exporter = new JaegerTraceExporter({
+    //     serviceName: 'NEO-ONE',
+    //     host: 'localhost',
+    //     port: environment.tracing.port,
+    //     bufferTimeout: 100,
+    //   });
 
-      const stopTracing = startTracing(exporter);
-      finalize(stopTracing);
-    }
+    //   const stopTracing = startTracing(exporter);
+    //   finalize(stopTracing);
+    // }
 
     let levelDown = customLeveldown;
     if (levelDown === undefined) {

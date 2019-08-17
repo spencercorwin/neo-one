@@ -11,7 +11,7 @@ import {
   PeerHealthBase,
 } from '@neo-one/node-core';
 import { Labels, utils } from '@neo-one/utils';
-import { AggregationType, globalStats, MeasureUnit } from '@opencensus/core';
+import { AggregationType, globalStats, MeasureUnit } from '@neo-one/client-switch';
 import _ from 'lodash';
 import * as net from 'net';
 import { Observable, Subscription } from 'rxjs';

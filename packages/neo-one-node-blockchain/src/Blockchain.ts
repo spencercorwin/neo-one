@@ -29,7 +29,7 @@ import {
   VM,
 } from '@neo-one/node-core';
 import { Labels, utils as commonUtils } from '@neo-one/utils';
-import { AggregationType, globalStats, MeasureUnit } from '@opencensus/core';
+import { AggregationType, globalStats, MeasureUnit } from '@neo-one/client-switch';
 import { BN } from 'bn.js';
 import PriorityQueue from 'js-priority-queue';
 import { BehaviorSubject, Observable, Subject } from 'rxjs';

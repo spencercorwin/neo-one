@@ -14,7 +14,7 @@ import {
   TransactionType,
 } from '@neo-one/node-core';
 import { Labels, labelToTag } from '@neo-one/utils';
-import { AggregationType, globalStats, MeasureUnit, TagMap } from '@opencensus/core';
+import { AggregationType, globalStats, MeasureUnit, TagMap } from '@neo-one/client-switch';
 import { filter, switchMap, take, timeout, toArray } from 'rxjs/operators';
 
 const logger = nodeLogger.child({ component: 'rpc-handler' });
