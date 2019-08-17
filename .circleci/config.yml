@@ -261,15 +261,6 @@ aliases:
           name: Add .nyc_output Directory
           command: mkdir .nyc_output
       - run:
-          name: Start testRunner
-          command: yarn website:start-testRunner-prod-ci
-      - run:
-          name: Start preview
-          command: yarn website:start-preview-prod-ci
-      - run:
-          name: Start react-static
-          command: yarn website:start-static-prod-ci
-      - run:
           name: Try Cypress tests
           command: yarn test:cypress-express
       - run:
