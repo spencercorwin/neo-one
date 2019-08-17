@@ -99,6 +99,12 @@ const createProcess = (command: string) => {
     returnProc.kill();
     await returnProc;
   });
+  if (returnProc.stdout !== null) {
+    returnProc.stdout.pipe(process.stdout);
+  }
+  if (returnProc.stderr !== null) {
+    returnProc.stderr.pipe(process.stderr);
+  }
   return returnProc;
 };
 
