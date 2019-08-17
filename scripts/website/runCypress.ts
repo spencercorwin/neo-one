@@ -103,12 +103,12 @@ const createProcess = (command: string) => {
 };
 
 const run = async ({ report, coverage }: { readonly report: boolean; readonly coverage: boolean }) => {
-  const overlayProc = createProcess('website:start-overlay-prod');
-  await overlayProc;
-  const workersProc = createProcess('website:start-workers-prod-ci');
-  await workersProc;
-  const toolsProc = createProcess('website:start-tools-prod-ci');
-  await toolsProc;
+  // const overlayProc = createProcess('website:start-overlay-prod');
+  // await overlayProc;
+  // const workersProc = createProcess('website:start-workers-prod-ci');
+  // await workersProc;
+  // const toolsProc = createProcess('website:start-tools-prod-ci');
+  // await toolsProc;
   const previewProc = createProcess('website:start-preview-prod-ci');
   await timer(10 * 60 * 1000);
   const testRunnerProc = createProcess('website:start-testRunner-prod-ci');
