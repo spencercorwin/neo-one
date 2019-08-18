@@ -115,14 +115,16 @@ const run = async ({ report, coverage }: { readonly report: boolean; readonly co
   // await workersProc;
   // const toolsProc = createProcess('website:start-tools-prod-ci');
   // await toolsProc;
-  const previewProc = createProcess('website:start-preview-prod-ci');
-  await timer(10 * 60 * 1000);
-  const testRunnerProc = createProcess('website:start-testRunner-prod-ci');
-  await timer(8 * 60 * 1000);
-  const serverProc = createProcess('website:start-server');
-  await timer(10 * 60 * 1000);
-  const staticProc = createProcess('website:start-static-prod-ci');
-  await timer(40 * 60 * 1000).toPromise();
+
+  // 10 minutes for preview
+  setTimeout(() => createProcess('website:start-preview-prod-ci'), 10 * 60 * 1000);
+  // 10 minutes for testRunner
+  setTimeout(() => createProcess('website:start-testRunner-prod-ci'), 20 * 60 * 1000);
+  // 20 minutes for server
+  setTimeout(() => createProcess('website:start-server'), 40 * 60 * 1000);
+  // 40 minutes for static
+  setTimeout(() => createProcess('website:start-static-prod-ci'), 80 * 60 * 1000);
+  await timer((40 + 80 + 40 + 20 + 10) * 60 * 1000).toPromise();
   await runCypress({ report, coverage });
 };
 
