@@ -16,7 +16,6 @@ import {
   NetworkType,
   Param,
   ParamJSON,
-  RawAction,
   RawApplicationLogData,
   RawCallReceipt,
   RawInvocationData,
@@ -135,18 +134,12 @@ interface FullTransfer extends Transfer {
 
 export abstract class UserAccountProviderBase<TProvider extends Provider> {
   public readonly provider: TProvider;
-  public readonly iterActionsRaw?: (network: NetworkType, options?: IterOptions) => AsyncIterable<RawAction>;
   protected mutableBlockCount: number;
 
   public constructor({ provider }: { readonly provider: TProvider }) {
     this.provider = provider;
 
     this.mutableBlockCount = 0;
-
-    const iterActionsRaw = this.provider.iterActionsRaw;
-    if (iterActionsRaw !== undefined) {
-      this.iterActionsRaw = iterActionsRaw.bind(this.provider);
-    }
   }
 
   public getCurrentUserAccount(): UserAccount | undefined {
@@ -486,7 +479,7 @@ export abstract class UserAccountProviderBase<TProvider extends Provider> {
     });
 
     const callReceipt = await this.provider.testInvoke(from.network, testTransaction);
-    if (callReceipt === 'FAULT') {
+    if (callReceipt.state === 'FAULT') {
       const message = await processActionsAndMessage({
         actions: callReceipt.actions,
         message: callReceipt.result.message,
@@ -495,7 +488,7 @@ export abstract class UserAccountProviderBase<TProvider extends Provider> {
       throw new InvokeError(message);
     }
 
-    const gas = callReceipt.result.gasConsumed.integerValue(BigNumber.ROUND_UP);
+    const gas = callReceipt.gasConsumed.integerValue(BigNumber.ROUND_UP);
     if (gas.gt(utils.ZERO_BIG_NUMBER) && systemFee.lt(gas) && !systemFee.eq(utils.NEGATIVE_ONE_BIG_NUMBER)) {
       throw new InsufficientSystemFeeError(systemFee, gas);
     }
@@ -655,14 +648,20 @@ export abstract class UserAccountProviderBase<TProvider extends Provider> {
     readonly gas: BigNumber;
     readonly attributes: ReadonlyArray<Attribute>;
   }> {
+    const [count, { messageMagic }] = await Promise.all([
+      this.provider.getBlockCount(from.network),
+      this.provider.getNetworkSettings(from.network),
+    ]);
     const testTransaction = new FeelessTransactionModel({
       attributes: this.convertAttributes(attributes),
       script,
       witnesses,
+      messageMagic,
+      validUntilBlock: count + 240,
     });
 
     const callReceipt = await this.provider.testInvoke(from.network, testTransaction);
-    if (callReceipt.result.state === 'FAULT') {
+    if (callReceipt.state === 'FAULT') {
       const message = await processActionsAndMessage({
         actions: callReceipt.actions,
         message: callReceipt.result.message,
@@ -670,7 +669,7 @@ export abstract class UserAccountProviderBase<TProvider extends Provider> {
       throw new InvokeError(message);
     }
 
-    const gas = callReceipt.result.gasConsumed.integerValue(BigNumber.ROUND_UP);
+    const gas = callReceipt.gasConsumed.integerValue(BigNumber.ROUND_UP);
 
     return { gas, attributes };
   }

@@ -4,7 +4,6 @@ import {
   common,
   crypto,
   GetOptions,
-  IterOptions,
   NetworkType,
   RawAction,
   RelayTransactionResult,
@@ -27,7 +26,6 @@ import { utils as commonUtils } from '@neo-one/utils';
 import BigNumber from 'bignumber.js';
 import { Observable } from 'rxjs';
 import { InvokeError, UnknownAccountError } from '../errors';
-import { Hash160 } from '../Hash160';
 import {
   ExecuteInvokeMethodOptions,
   ExecuteInvokeScriptOptions,
@@ -98,7 +96,6 @@ export class LocalUserAccountProvider<TKeyStore extends KeyStore = KeyStore, TPr
   public readonly keystore: TKeyStore;
   public readonly deleteUserAccount?: (id: UserAccountID) => Promise<void>;
   public readonly updateUserAccountName?: (options: UpdateAccountNameOptions) => Promise<void>;
-  public readonly iterActionsRaw?: (network: NetworkType, options?: IterOptions) => AsyncIterable<RawAction>;
   protected readonly executeInvokeMethod: <T extends TransactionReceipt>(
     options: ExecuteInvokeMethodOptions<T>,
   ) => Promise<TransactionResult<T>>;
@@ -128,11 +125,6 @@ export class LocalUserAccountProvider<TKeyStore extends KeyStore = KeyStore, TPr
       this.updateUserAccountName = async (options: UpdateAccountNameOptions): Promise<void> => {
         await updateUserAccountName(options);
       };
-    }
-
-    const iterActionsRaw = this.provider.iterActionsRaw;
-    if (iterActionsRaw !== undefined) {
-      this.iterActionsRaw = iterActionsRaw.bind(this.keystore);
     }
 
     this.executeInvokeMethod = this.executeInvoke;
@@ -286,22 +278,28 @@ export class LocalUserAccountProvider<TKeyStore extends KeyStore = KeyStore, TPr
   ): Promise<TransactionResult> {
     const sb = new ScriptBuilder();
     transfers.forEach((transfer) => {
-      sb.emitSysCall(
-        'System.Contract.Call',
-        transfer.asset === Hash160.NEO ? common.nativeHashes.NEO : common.nativeHashes.GAS,
-        'transfer',
-        [addressToScriptHash(from.address), addressToScriptHash(transfer.to), transfer.amount.toString()],
-      );
+      // TODO: check transfer.asset
+      sb.emitAppCall(common.stringToUInt160(transfer.asset), 'transfer', [
+        addressToScriptHash(from.address),
+        addressToScriptHash(transfer.to),
+        transfer.amount.toString(),
+      ]);
     });
     const script = sb.build();
 
-    const { gas } = await this.getSystemFee({ from, attributes, script });
+    const [{ gas }, count, { messageMagic }] = await Promise.all([
+      this.getSystemFee({ from, attributes, script }),
+      this.provider.getBlockCount(from.network),
+      this.provider.getNetworkSettings(from.network),
+    ]);
 
     const transaction = new TransactionModel({
       systemFee: utils.bigNumberToBN(gas, 8), // TODO: check. fee for transfer method is 0.08 GAS
       networkFee: utils.bigNumberToBN(networkFee, 8), // TODO: check
       attributes: this.convertAttributes(attributes),
       script,
+      validUntilBlock: count + 240,
+      messageMagic,
     });
 
     return this.sendTransaction<Transaction>({
@@ -321,14 +319,18 @@ export class LocalUserAccountProvider<TKeyStore extends KeyStore = KeyStore, TPr
     const unclaimedAmount = await this.provider.getUnclaimed(from.network, from.address);
     const toHash = crypto.toScriptHash(crypto.createSignatureRedeemScript(common.stringToECPoint(toAccount.publicKey)));
     const script = new ScriptBuilder()
-      .emitSysCall('System.Contract.Call', common.nativeHashes.GAS, 'transfer', [
+      .emitAppCall(common.nativeHashes.GAS, 'transfer', [
         addressToScriptHash(from.address),
         common.nativeHashes.GAS,
         unclaimedAmount.toString(),
       ])
       .build();
 
-    const { gas } = await this.getSystemFee({ script, from, attributes });
+    const [{ gas }, count, { messageMagic }] = await Promise.all([
+      this.getSystemFee({ from, attributes, script }),
+      this.provider.getBlockCount(from.network),
+      this.provider.getNetworkSettings(from.network),
+    ]);
 
     const transaction = new TransactionModel({
       systemFee: utils.bigNumberToBN(gas, 8), // TODO: check this. check decimals
@@ -337,6 +339,8 @@ export class LocalUserAccountProvider<TKeyStore extends KeyStore = KeyStore, TPr
       witnesses: undefined, // ?
       script,
       attributes: this.convertAttributes(attributes),
+      messageMagic,
+      validUntilBlock: count + 240,
     });
 
     return this.sendTransaction<Transaction>({
@@ -356,8 +360,12 @@ export class LocalUserAccountProvider<TKeyStore extends KeyStore = KeyStore, TPr
     onConfirm,
     sourceMaps,
   }: ExecuteInvokeScriptOptions<T>): Promise<TransactionResult<T>> {
-    // TODO: check
-    const { gas: systemFee } = await this.getSystemFee({ attributes, script, from });
+    // TODO: check system fee
+    const [{ gas: systemFee }, count, { messageMagic }] = await Promise.all([
+      this.getSystemFee({ from, attributes, script }),
+      this.provider.getBlockCount(from.network),
+      this.provider.getNetworkSettings(from.network),
+    ]);
     const invokeTransaction = new TransactionModel({
       systemFee: utils.bigNumberToBN(systemFee, 8), // TODO: check
       networkFee: utils.bigNumberToBN(gas, 8), // TODO: check
@@ -365,6 +373,8 @@ export class LocalUserAccountProvider<TKeyStore extends KeyStore = KeyStore, TPr
       signers: [], // TODO: ?
       script,
       witnesses,
+      validUntilBlock: count + 240,
+      messageMagic,
     });
 
     try {
