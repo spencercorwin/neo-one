@@ -14,7 +14,6 @@ namespace NEOONE
 
     public class RawChange
     {
-      public byte table { get; set; }
       public byte[] key { get; set; }
       public byte[] value { get; set; }
     }
@@ -26,7 +25,8 @@ namespace NEOONE
           List<RawChange> changes = new List<RawChange> { };
           foreach (dynamic change in args.changes)
           {
-            changes.Add(new RawChange() { table = (byte)change.table, key = (byte[])change.key, value = (byte[])change.value });
+            // TODO: check this was right when removing table prefix
+            changes.Add(new RawChange() { key = (byte[])change.key, value = (byte[])change.value });
           }
           return this._updateStore(changes.ToArray());
         default:
@@ -46,10 +46,10 @@ namespace NEOONE
       this.store = new MemoryStore();
       foreach (RawChange change in changes)
       {
-        this.store.PutSync(change.table, change.key, change.value);
+        this.store.PutSync(change.key, change.value);
       }
-      this.snapshot = new SnapshotView(this.store);
-      this.clonedSnapshot = this.snapshot.Clone();
+      this.snapshot = new SnapshotCache(this.store);
+      this.clonedSnapshot = this.snapshot.CreateSnapshot();
 
       return true;
     }

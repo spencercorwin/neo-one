@@ -1,19 +1,27 @@
 import { UInt160 } from '@neo-one/client-common';
-import { ContractState, NativeContractStorageContext, utils } from '@neo-one/node-core';
+import {
+  BlockchainSettings,
+  ContractManagement as ContractManagementNode,
+  ContractState,
+  NativeContractStorageContext,
+  utils,
+} from '@neo-one/node-core';
 import { map, toArray } from 'rxjs/operators';
+import { contractManagementMethods } from './methods';
 import { NativeContract } from './NativeContract';
 
-export class ManagementContract extends NativeContract {
+export class ContractManagement extends NativeContract implements ContractManagementNode {
   private readonly prefixes = {
     minimumDeploymentFee: Buffer.from([20]),
     nextAvailableId: Buffer.from([15]),
     contract: Buffer.from([8]),
   };
 
-  public constructor() {
+  public constructor(settings: BlockchainSettings) {
     super({
-      id: 0,
-      name: 'ManagementContract',
+      name: 'ContractManagement',
+      methods: contractManagementMethods,
+      settings,
     });
   }
 

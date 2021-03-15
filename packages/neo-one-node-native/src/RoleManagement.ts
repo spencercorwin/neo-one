@@ -1,19 +1,23 @@
 import { common, ECPoint } from '@neo-one/client-common';
 import {
   assertArrayStackItem,
+  BlockchainSettings,
   DesignationRole as Role,
   NativeContractStorageContext,
+  RoleManagement as RoleManagementNode,
   StackItem,
   utils,
 } from '@neo-one/node-core';
 import { map, toArray } from 'rxjs/operators';
+import { roleManagementMethods } from './methods';
 import { NativeContract } from './NativeContract';
 
-export class DesignationContract extends NativeContract {
-  public constructor() {
+export class RoleManagement extends NativeContract implements RoleManagementNode {
+  public constructor(settings: BlockchainSettings) {
     super({
-      id: -5,
-      name: 'DesignationContract',
+      name: 'RoleManagement',
+      methods: roleManagementMethods,
+      settings,
     });
   }
 
@@ -30,7 +34,7 @@ export class DesignationContract extends NativeContract {
     index: number,
   ): Promise<readonly ECPoint[]> {
     if (height + 1 < index) {
-      throw new Error(`index: ${index} out of range for getDesignatedByRole.`);
+      throw new Error(`Index out of range for getDesignatedByRole: ${index}.`);
     }
 
     const key = this.createStorageKey(Buffer.from([role]))

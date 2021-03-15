@@ -1,5 +1,6 @@
 import {
   AccountContract,
+  BinaryReader,
   BinaryWriter,
   common,
   createSerializeWire,
@@ -16,22 +17,20 @@ import {
   SerializableContainer,
   SerializableContainerType,
 } from '../Serializable';
-import { BinaryReader } from '../utils';
 import { VerifyOptions } from '../Verifiable';
 import { Witness } from '../Witness';
-import { ConsensusMessage } from './message';
-import { UnsignedConsensusPayload, UnsignedConsensusPayloadAdd } from './UnsignedConsensusPayload';
+import { UnsignedExtensiblePayload, UnsignedExtensiblePayloadAdd } from './UnsignedExtensiblePayload';
 
-export interface ConsensusPayloadAdd extends UnsignedConsensusPayloadAdd {
+export interface ExtensiblePayloadAdd extends UnsignedExtensiblePayloadAdd {
   readonly witness: Witness;
 }
-export class ConsensusPayload extends UnsignedConsensusPayload implements SerializableContainer {
+export class ExtensiblePayload extends UnsignedExtensiblePayload implements SerializableContainer {
   public static sign(
-    payload: UnsignedConsensusPayload,
+    payload: UnsignedExtensiblePayload,
     privateKey: PrivateKey,
     validators: readonly ECPoint[],
     messageMagic: number,
-  ): ConsensusPayload {
+  ): ExtensiblePayload {
     const context = new ContractParametersContext(payload.getScriptHashesForVerifyingFromValidators(validators));
     const hashData = getHashData(payload.serializeWire(), messageMagic);
     const publicKey = crypto.privateKeyToPublicKey(privateKey);
@@ -39,56 +38,56 @@ export class ConsensusPayload extends UnsignedConsensusPayload implements Serial
     const signature = crypto.sign({ message: hashData, privateKey });
     context.addSignature(signatureContract, publicKey, signature);
 
-    return new ConsensusPayload({
-      version: payload.version,
-      previousHash: payload.previousHash,
-      blockIndex: payload.blockIndex,
-      validatorIndex: payload.validatorIndex,
-      consensusMessage: payload.consensusMessage,
+    return new ExtensiblePayload({
+      category: payload.category,
+      validBlockStart: payload.validBlockStart,
+      validBlockEnd: payload.validBlockEnd,
+      sender: payload.sender,
+      data: payload.data,
       witness: context.getWitnesses()[0],
       messageMagic,
     });
   }
-  public static deserializeWireBase(options: DeserializeWireBaseOptions): ConsensusPayload {
-    const { reader, context } = options;
+  public static deserializeWireBase(options: DeserializeWireBaseOptions): ExtensiblePayload {
+    const { reader } = options;
     const {
-      version,
-      previousHash,
-      blockIndex,
-      validatorIndex,
+      category,
+      validBlockStart,
+      validBlockEnd,
+      sender,
       data,
-    } = super.deserializeUnsignedConsensusPayloadWireBase(options, context.validatorsCount);
+    } = super.deserializeUnsignedExtensiblePayloadWireBase(options);
     const count = reader.readInt8();
     if (count !== 1) {
-      throw new InvalidFormatError(`expected exactly 1 witness`);
+      throw new InvalidFormatError('Expected exactly 1 witness.');
     }
 
     const witness = Witness.deserializeWireBase(options);
 
-    return new ConsensusPayload({
-      version,
-      previousHash,
-      blockIndex,
-      validatorIndex,
+    return new ExtensiblePayload({
+      category,
+      validBlockEnd,
+      validBlockStart,
+      sender,
       data,
       witness,
       messageMagic: options.context.messageMagic,
     });
   }
 
-  public static deserializeWire(options: DeserializeWireOptions): ConsensusPayload {
+  public static deserializeWire(options: DeserializeWireOptions): ExtensiblePayload {
     return this.deserializeWireBase({
       context: options.context,
       reader: new BinaryReader(options.buffer),
     });
   }
 
-  public readonly type: SerializableContainerType = 'ConsensusPayload';
+  public readonly type: SerializableContainerType = 'ExtensiblePayload';
   public readonly witness: Witness;
   public readonly serializeUnsigned = createSerializeWire(this.serializeWireBaseUnsigned);
   public readonly serializeWire = createSerializeWire(this.serializeWireBase.bind(this));
 
-  public constructor(options: ConsensusPayloadAdd) {
+  public constructor(options: ExtensiblePayloadAdd) {
     super(options);
     this.witness = options.witness;
   }
@@ -107,12 +106,13 @@ export class ConsensusPayload extends UnsignedConsensusPayload implements Serial
     super.serializeWireBase(writer);
   }
 
-  public getDeserializedMessage<T extends ConsensusMessage>() {
-    return this.consensusMessage as T;
-  }
-
   public async verify(options: VerifyOptions) {
-    if (this.blockIndex <= options.height) {
+    if (options.height < this.validBlockStart || options.height >= this.validBlockEnd) {
+      return false;
+    }
+
+    // TODO: need to check blockchain.isExtensibleWitnessWhiteListed(this.sender)
+    if (!options.isExtensibleWitnessWhiteListed(this.sender)) {
       return false;
     }
 
@@ -121,6 +121,7 @@ export class ConsensusPayload extends UnsignedConsensusPayload implements Serial
       verifiable: this,
       storage: options.storage,
       native: options.native,
+      headerCache: options.headerCache,
       gas: common.fixed8FromDecimal('0.02'),
     });
   }

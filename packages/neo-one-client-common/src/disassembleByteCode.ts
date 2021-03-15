@@ -1,6 +1,8 @@
 // tslint:disable prefer-switch
-import { Byte, isByteCode, Op, OpCode, toStackItemTypeJSON, toSysCallName } from '@neo-one/client-common';
-import { BinaryReader, utils } from './utils';
+import { BinaryReader } from './BinaryReader';
+import { Byte, isByteCode, Op, OpCode, toSysCallName } from './models';
+import { toStackItemTypeJSON } from './StackItemType';
+import { utils } from './utils';
 
 export const createHexString = (bytes: Buffer): string => {
   let mutableResult = '';
@@ -85,11 +87,10 @@ export const disassembleByteCode = (bytes: Buffer): readonly Line[] => {
       byte === Op.JMPGE_L ||
       byte === Op.JMPLE_L ||
       byte === Op.CALL_L ||
-      byte === Op.ENDTRY_L
+      byte === Op.ENDTRY_L ||
+      byte === Op.PUSHA
     ) {
       mutableResult.push([pc, opCode, `${reader.readInt32LE()}`]);
-    } else if (byte === Op.PUSHA) {
-      mutableResult.push([pc, opCode, `${createHexString(reader.readBytes(4))}`]);
     } else if (
       byte === Op.LDSFLD ||
       byte === Op.STSFLD ||
@@ -100,6 +101,8 @@ export const disassembleByteCode = (bytes: Buffer): readonly Line[] => {
       byte === Op.INITSSLOT
     ) {
       mutableResult.push([pc, opCode, `${reader.readUInt8()}`]);
+    } else if (byte === Op.CALLT) {
+      mutableResult.push([pc, opCode, `${reader.readUInt16LE()}`]);
     } else if (byte === Op.TRY) {
       const catchOffset = reader.readInt8();
       const finallyOffset = reader.readInt8();
@@ -125,7 +128,7 @@ export const disassembleByteCode = (bytes: Buffer): readonly Line[] => {
       const bytesOut = reader.readBytes(4);
       let result = createHexString(bytesOut);
       try {
-        result = toSysCallName(bytesOut.readUInt32BE());
+        result = toSysCallName(bytesOut.readUInt32BE(0));
       } catch {
         // do nothing
       }

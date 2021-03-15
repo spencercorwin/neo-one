@@ -1,6 +1,6 @@
-import { OpCode, ScriptBuilder, StackItemType } from '@neo-one/client-common';
 import { BN } from 'bn.js';
 import { disassembleByteCode } from '../disassembleByteCode';
+import { OpCode, ScriptBuilder, StackItemType } from '../index';
 
 const noOpOps: ReadonlyArray<OpCode> = [
   'PUSHNULL',
@@ -141,6 +141,7 @@ const noOpOps: ReadonlyArray<OpCode> = [
   'REMOVE',
   'CLEARITEMS',
   'ISNULL',
+  'POPITEM',
 ];
 
 // tslint:disable-next-line: no-any
@@ -188,16 +189,6 @@ describe('disassembleByteCode', () => {
   test('CONVERT Incorrect byte', () => {
     const script = sb.emitOp('CONVERT', Buffer.from([0xff])).build();
     myExpect(script, 'CONVERT 255');
-  });
-
-  test('SYSCALL System.Contract.Update', () => {
-    const script = sb.emitSysCall('System.Contract.Update').build();
-    myExpect(script, `SYSCALL System.Contract.Update`);
-  });
-
-  test('SYSCALL System.Runtime.GetTime', () => {
-    const script = sb.emitSysCall('System.Contract.Update').build();
-    myExpect(script, `SYSCALL System.Contract.Update`);
   });
 
   test('PUSHINT8 -128', () => {
@@ -314,6 +305,11 @@ describe('disassembleByteCode', () => {
   test('CALL', () => {
     const script = sb.emitOp('CALL', Buffer.from([0x3])).build();
     myExpect(script, 'CALL 3');
+  });
+
+  test('CALLT', () => {
+    const script = sb.emitOp('CALLT', Buffer.from([0x0345])).build();
+    myExpect(script, 'CALLT 837');
   });
 
   test('ENDTRY', () => {

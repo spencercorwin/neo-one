@@ -128,7 +128,7 @@ export class NEOONEDataProvider implements DeveloperProvider {
   }
 
   public async testInvoke(script: Buffer): Promise<RawCallReceipt> {
-    const receipt = await this.mutableClient.testInvokeRaw(script.toString('hex'));
+    const receipt = await this.mutableClient.testInvokeRaw(script.toString('base64'));
 
     return convertCallReceipt(receipt);
   }
