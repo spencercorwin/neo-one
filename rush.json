@@ -6,8 +6,14 @@
   "ensureConsistentVersions": true,
   "suppressNodeLtsWarning": true,
   "approvedPackagesPolicy": {
-    "reviewCategories": ["production", "tools", "web"],
-    "ignoredNpmScopes": ["@types"]
+    "reviewCategories": [
+      "production",
+      "tools",
+      "web"
+    ],
+    "ignoredNpmScopes": [
+      "@types"
+    ]
   },
   "repository": {
     "url": "https://github.com/neo-one-suite/neo-one.git"
@@ -290,6 +296,13 @@
     {
       "packageName": "@neo-one/node-vm",
       "projectFolder": "packages/neo-one-node-vm",
+      "reviewCategory": "production",
+      "shouldPublish": true,
+      "versionPolicyName": "NodeReleasePolicy"
+    },
+    {
+      "packageName": "@neo-one/node-vm-ts",
+      "projectFolder": "packages/neo-one-node-vm-ts",
       "reviewCategory": "production",
       "shouldPublish": true,
       "versionPolicyName": "NodeReleasePolicy"
