@@ -1,4 +1,4 @@
-import { isStackItemType, StackItemType } from '@neo-one/client-common';
+import { BinaryWriter, isStackItemType, StackItemType } from '@neo-one/client-common';
 import { AnyContractParameter, ContractParameter } from '../contractParameter';
 import { InvalidStackItemCastError } from '../errors';
 import { StackItemBase } from './StackItemBase';
@@ -38,5 +38,12 @@ export class NullStackItem extends StackItemBase {
 
   public toContractParameter(_seen: Set<StackItemBase> = new Set()): ContractParameter {
     return new AnyContractParameter();
+  }
+
+  protected serializeInternal(): Buffer {
+    const writer = new BinaryWriter();
+    writer.writeUInt8(StackItemType.Any);
+
+    return writer.toBuffer();
   }
 }

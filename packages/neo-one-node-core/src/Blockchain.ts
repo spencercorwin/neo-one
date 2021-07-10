@@ -2,6 +2,7 @@ import { ECPoint, UInt160, UInt256, VerifyResultModelExtended } from '@neo-one/c
 import { BN } from 'bn.js';
 import { Observable } from 'rxjs';
 import { Block } from './Block';
+import { ContractState } from './ContractState';
 import { Header } from './Header';
 import { HeaderCache } from './HeaderCache';
 import { ExtensiblePayload } from './payload';
@@ -46,6 +47,7 @@ export interface Blockchain extends BlockchainStorage {
   readonly verifyConsensusPayload: (payload: ExtensiblePayload) => Promise<void>;
 
   readonly getBlock: (hashOrIndex: UInt256 | number) => Promise<Block | undefined>;
+  readonly getContract: (hash: UInt160) => Promise<ContractState | undefined>;
   readonly getHeader: (hashOrIndex: UInt256 | number) => Promise<Header | undefined>;
   readonly getBlockHash: (index: number) => Promise<UInt256 | undefined>;
   readonly getNextBlockHash: (hash: UInt256) => Promise<UInt256 | undefined>;
@@ -69,7 +71,7 @@ export interface Blockchain extends BlockchainStorage {
   }) => CallReceipt;
   readonly testTransaction: (transaction: Transaction) => CallReceipt;
   readonly getVerificationCost: (
-    contractHash: UInt160,
+    contractStateHash: UInt160,
     transaction: Transaction,
   ) => Promise<{
     readonly fee: BN;

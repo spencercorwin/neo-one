@@ -1,7 +1,6 @@
-import { common, OpCode, SysCallName, UInt160, VMState } from '@neo-one/client-common';
-import { Block, ExecutionAction, ScriptContainer, TriggerType, VMListeners, WriteBlockchain } from '@neo-one/node-core';
+import { OpCode, SysCallName, TriggerType, UInt160, VMState } from '@neo-one/client-common';
+import { Block, Blockchain, ExecutionAction, ScriptContainer, StackItem, utils, VMListeners } from '@neo-one/node-core';
 import { BN } from 'bn.js';
-import { StackItem } from './stackItem';
 
 export const MAX_SHL_SHR = 65535;
 export const MIN_SHL_SHR = -MAX_SHL_SHR;
@@ -25,8 +24,10 @@ export const FEES = {
   ONE_THOUSAND: new BN(ratio * 1000),
 };
 
-export const FREE_GAS = common.TEN_FIXED8;
+export const FREE_GAS = utils.ZERO;
 export type ExecutionStack = readonly StackItem[];
+// tslint:disable-next-line: readonly-array
+export type Slot = StackItem[];
 export interface ExecutionInit {
   readonly scriptContainer: ScriptContainer;
   readonly triggerType: TriggerType;
@@ -42,7 +43,7 @@ export interface CreatedContracts {
 export interface Options {
   readonly depth: number;
   readonly stack: ExecutionStack;
-  readonly stackAlt: ExecutionStack;
+  readonly stackTry: ExecutionStack;
   readonly createdContracts: CreatedContracts;
   readonly scriptHashStack: readonly UInt160[];
   readonly scriptHash: UInt160 | undefined;
@@ -50,17 +51,20 @@ export interface Options {
   readonly returnValueCount: number;
   readonly stackCount: number;
   readonly pc?: number;
+  readonly staticFields?: Slot;
+  readonly localVariables?: Slot;
+  readonly arguments?: Slot;
 }
 export interface ExecutionContext {
   readonly state: VMState;
   readonly errorMessage?: string;
-  readonly blockchain: WriteBlockchain;
+  readonly blockchain: Blockchain;
   readonly init: ExecutionInit;
   readonly engine: {
     readonly run: (input: { readonly context: ExecutionContext }) => Promise<ExecutionContext>;
     readonly executeScript: (input: {
       readonly code: Buffer;
-      readonly blockchain: WriteBlockchain;
+      readonly blockchain: Blockchain;
       readonly init: ExecutionInit;
       readonly gasLeft: BN;
       readonly options?: Options;
@@ -74,30 +78,33 @@ export interface ExecutionContext {
   readonly pc: number;
   readonly depth: number;
   readonly stack: ExecutionStack;
-  readonly stackAlt: ExecutionStack;
+  readonly stackTry: ExecutionStack;
   readonly gasLeft: BN;
   readonly createdContracts: CreatedContracts;
   readonly returnValueCount: number;
   readonly stackCount: number;
+  readonly staticFields?: Slot;
+  readonly localVariables?: Slot;
+  readonly arguments?: Slot;
 }
 
 export interface OpResult {
   readonly context: ExecutionContext;
   readonly results?: readonly StackItem[];
-  readonly resultsAlt?: readonly StackItem[];
+  readonly resultsTry?: readonly StackItem[];
 }
 export interface OpInvokeArgs {
   readonly context: ExecutionContext;
   readonly args: readonly StackItem[];
-  readonly argsAlt: readonly StackItem[];
+  readonly argsTry: readonly StackItem[];
 }
 export type OpInvoke = (input: OpInvokeArgs) => Promise<OpResult> | OpResult;
 export interface Op {
   readonly name: OpCode;
   readonly in: number;
-  readonly inAlt: number;
+  readonly inTry: number;
   readonly out: number;
-  readonly outAlt: number;
+  readonly outTry: number;
   readonly invocation: number;
   readonly fee: BN;
   readonly invoke: OpInvoke;
@@ -105,9 +112,9 @@ export interface Op {
 export interface SysCall {
   readonly name: SysCallName;
   readonly in: number;
-  readonly inAlt: number;
+  readonly inTry: number;
   readonly out: number;
-  readonly outAlt: number;
+  readonly outTry: number;
   readonly invocation: number;
   readonly fee: BN;
   readonly invoke: OpInvoke;

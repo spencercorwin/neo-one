@@ -1,61 +1,39 @@
 /// <reference types="@reactivex/ix-es2015-cjs" />
 import {
-  assertStorageFlags,
-  assertSysCall,
   common,
   crypto,
   ECPoint,
-  hasStorageFlag,
   SysCall as SysCallEnum,
-  SysCallHash,
   SysCallName,
-  toSysCallHash,
+  toSysCallHashNum,
   TriggerType,
   UInt160,
 } from '@neo-one/client-common';
-import { BinaryReader, ScriptContainerType, StorageFlags, StorageItem, utils } from '@neo-one/node-core';
+import {
+  BinaryReader,
+  BlockStackItem,
+  BooleanStackItem,
+  BufferStackItem,
+  ConsensusPayloadStackItem,
+  HeaderStackItem,
+  IntegerStackItem,
+  IteratorStackItem,
+  ScriptContainerType,
+  StackItem,
+  StackItemIterator,
+  StorageContextStackItem,
+  StorageItem,
+  TransactionStackItem,
+  UInt160StackItem,
+  utils,
+} from '@neo-one/node-core';
 import { utils as commonUtils } from '@neo-one/utils';
 import { AsyncIterableX } from '@reactivex/ix-es2015-cjs/asynciterable/asynciterablex';
 import { map as asyncMap } from '@reactivex/ix-es2015-cjs/asynciterable/pipe/map';
 import { BN } from 'bn.js';
 import _ from 'lodash';
 import { ExecutionContext, FEES, OpInvoke, SysCall } from './constants';
-import {
-  ConstantStorageError,
-  ContractNoStorageError,
-  InvalidVerifySyscallError,
-  ItemTooLargeError,
-  StackUnderflowError,
-  UnknownSysCallError,
-} from './errors';
-import {
-  AccountStackItem,
-  ArrayStackItem,
-  AssetStackItem,
-  AttributeStackItem,
-  BlockStackItem,
-  BooleanStackItem,
-  BufferStackItem,
-  ConsensusPayloadStackItem,
-  ContractStackItem,
-  deserializeStackItem,
-  ECPointStackItem,
-  EnumeratorStackItem,
-  HeaderStackItem,
-  InputStackItem,
-  IntegerStackItem,
-  IteratorStackItem,
-  OutputStackItem,
-  StackItem,
-  StackItemEnumerator,
-  StackItemIterator,
-  StorageContextStackItem,
-  TransactionStackItem,
-  UInt160StackItem,
-  UInt256StackItem,
-  ValidatorStackItem,
-  WitnessStackItem,
-} from './stackItem';
+import { InvalidVerifySyscallError, ItemTooLargeError, StackUnderflowError, UnknownSysCallHashError } from './errors';
 import { vmUtils } from './vmUtils';
 
 export interface CreateSysCallArgs {
@@ -67,18 +45,18 @@ export const createSysCall =
   ({
     name,
     in: _in = 0,
-    inAlt = 0,
+    inTry = 0,
     out = 0,
-    outAlt = 0,
+    outTry = 0,
     invocation = 0,
     fee = FEES.ONE,
     invoke,
   }: {
     readonly name: SysCallName;
     readonly in?: number;
-    readonly inAlt?: number;
+    readonly inTry?: number;
     readonly out?: number;
-    readonly outAlt?: number;
+    readonly outTry?: number;
     readonly invocation?: number;
     readonly fee?: BN;
     readonly invoke: OpInvoke;
@@ -87,9 +65,9 @@ export const createSysCall =
     context,
     name,
     in: _in,
-    inAlt,
+    inTry,
     out,
-    outAlt,
+    outTry,
     invocation,
     fee,
     invoke,
@@ -104,23 +82,15 @@ const checkWitness = async ({ context, hash }: { readonly context: ExecutionCont
   let scriptHashesForVerifying;
   switch (scriptContainer.type) {
     case ScriptContainerType.Transaction:
-      scriptHashesForVerifying = await scriptContainer.value.getScriptHashesForVerifying({
-        getOutput: context.blockchain.output.get,
-        getAsset: context.blockchain.asset.get,
-      });
+      scriptHashesForVerifying = scriptContainer.value.getScriptHashesForVerifying();
 
       break;
     case ScriptContainerType.Block:
-      scriptHashesForVerifying = await scriptContainer.value.getScriptHashesForVerifying({
-        getHeader: context.blockchain.header.get,
-      });
+      scriptHashesForVerifying = await scriptContainer.value.getScriptHashesForVerifying();
 
       break;
-    case ScriptContainerType.Consensus:
-      scriptHashesForVerifying = await scriptContainer.value.getScriptHashesForVerifying({
-        getValidators: async () => context.blockchain.getValidators([]),
-        currentBlockHash: context.blockchain.currentBlock.hash,
-      });
+    case ScriptContainerType.ExtensiblePayload:
+      scriptHashesForVerifying = scriptContainer.value.getScriptHashesForVerifying();
 
       break;
     default:
@@ -163,15 +133,6 @@ const checkWitnessBuffer = async ({
   });
 };
 
-const checkStorage = async ({ context, hash }: { readonly context: ExecutionContext; readonly hash: UInt160 }) => {
-  const contract = await context.blockchain.contract.get({ hash });
-  if (!contract.hasStorage) {
-    throw new ContractNoStorageError(context, common.uInt160ToString(hash));
-  }
-
-  return contract;
-};
-
 const createPut =
   ({ name }: { readonly name: 'System.Storage.Put' | 'System.Storage.PutEx' }) =>
   ({ context: contextIn }: CreateSysCallArgs) => {
@@ -181,8 +142,8 @@ const createPut =
     if (keyIn === undefined || valueIn === undefined) {
       throw new StackUnderflowError(contextIn, 'SYSCALL', contextIn.stack.length, expectedIn);
     }
-    const ratio = new BN(keyIn.asBuffer().length)
-      .add(new BN(valueIn.asBuffer().length))
+    const ratio = new BN(keyIn.getBuffer().length)
+      .add(new BN(valueIn.getBuffer().length))
       .sub(utils.ONE)
       .div(utils.ONE_THOUSAND_TWENTY_FOUR)
       .add(utils.ONE);
@@ -200,17 +161,13 @@ const createPut =
           value: args[0],
           write: true,
         }).value;
-        await checkStorage({ context, hash });
-        const key = args[1].asBuffer();
+
+        const key = args[1].getBuffer();
         if (key.length > 1024) {
           throw new ItemTooLargeError(context);
         }
 
-        const value = args[2].asBuffer();
-        const flags =
-          name === 'System.Storage.Put'
-            ? StorageFlags.None
-            : assertStorageFlags(args[3].asBigIntegerUnsafe().toNumber());
+        const value = args[2].getBuffer();
         const item = await context.blockchain.storageItem.tryGet({ hash, key });
         // if (item === undefined) {
         //   await context.blockchain.storageItem.add(new StorageItem({ hash, key, value, flags }));
@@ -220,9 +177,6 @@ const createPut =
         //   await context.blockchain.storageItem.update(item, { value, flags });
         // }
         if (item !== undefined) {
-          if (hasStorageFlag(item.flags, StorageFlags.Constant)) {
-            throw new ConstantStorageError(context, key);
-          }
           await context.blockchain.storageItem.update(item, { value, flags });
         } else {
           await context.blockchain.storageItem.add(new StorageItem({ hash, key, value, flags }));
@@ -262,7 +216,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
         new BooleanStackItem(
           await checkWitnessBuffer({
             context,
-            hashOrPublicKey: args[0].asBuffer(),
+            hashOrPublicKey: args[0].getBuffer(),
           }),
         ),
       ],
@@ -278,7 +232,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
         onNotify({
           scriptHash: context.scriptHash,
           args: args[0].isArray()
-            ? args[0].asArray().map((item) => item.toContractParameter())
+            ? args[0].getArray().map((item) => item.toContractParameter())
             : [args[0].toContractParameter()],
         });
       }
@@ -295,7 +249,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
       if (onLog !== undefined) {
         onLog({
           scriptHash: context.scriptHash,
-          message: args[0].asString(),
+          message: args[0].getString(),
         });
       }
 
@@ -310,7 +264,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
       const { persistingBlock } = context.init;
       const time =
         persistingBlock === undefined
-          ? context.blockchain.currentBlock.timestamp + context.blockchain.settings.secondsPerBlock
+          ? context.blockchain.currentBlock.timestamp.toNumber() + context.blockchain.settings.millisecondsPerBlock
           : persistingBlock.timestamp;
 
       return {
@@ -345,11 +299,10 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
     fee: FEES.ONE_HUNDRED,
     invoke: async ({ context, args }) => {
       const hash = vmUtils.toStorageContext({ context, value: args[0] }).value;
-      await checkStorage({ context, hash });
 
       const item = await context.blockchain.storageItem.tryGet({
         hash,
-        key: args[1].asBuffer(),
+        key: args[1].getBuffer(),
       });
 
       const result = item === undefined ? Buffer.from([]) : item.value;
@@ -367,9 +320,9 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
     out: 1,
     invoke: async ({ context, args }) => {
       const hash = vmUtils.toStorageContext({ context, value: args[0] }).value;
-      await checkStorage({ context, hash });
 
-      const prefix = args[1].asBuffer();
+      const prefix = args[1].getBuffer();
+      const findOptions = args[2].getInteger();
       const iterable = AsyncIterableX.from<StorageItem>(context.blockchain.storageItem.getAll$({ hash, prefix })).pipe<{
         key: BufferStackItem;
         value: BufferStackItem;
@@ -392,7 +345,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
     in: 1,
     out: 1,
     invoke: async ({ context, args }) => {
-      const enumerator = args[0].asEnumerator();
+      const enumerator = args[0].getIterator();
       const value = await enumerator.next();
 
       return {
@@ -409,7 +362,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
     invoke: async ({ context, args }) => ({
       context,
       // tslint:disable-next-line no-any
-      results: [args[0].asEnumerator().value() as any],
+      results: [args[0].getIterator().value() as any],
     }),
   }),
 
@@ -417,7 +370,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
 
   'System.Storage.Delete': createSysCall({
     name: 'System.Storage.Delete',
-    in: 2,
+    in: 1,
     fee: FEES.ONE_HUNDRED,
     invoke: async ({ context, args }) => {
       const hash = vmUtils.toStorageContext({
@@ -425,14 +378,9 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
         value: args[0],
         write: true,
       }).value;
-      await checkStorage({ context, hash });
-      const key = args[1].asBuffer();
+      const key = args[1].getBuffer();
       const existing = await context.blockchain.storageItem.tryGet({ hash, key });
       if (existing !== undefined) {
-        if (hasStorageFlag(existing.flags, StorageFlags.Constant)) {
-          throw new ConstantStorageError(context, key);
-        }
-
         await context.blockchain.storageItem.delete({ hash, key });
       }
 
@@ -453,8 +401,14 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
         case ScriptContainerType.Block:
           result = new BlockStackItem(scriptContainer.value);
           break;
-        case ScriptContainerType.Consensus:
+        case ScriptContainerType.ExtensiblePayload:
           result = new ConsensusPayloadStackItem(scriptContainer.value);
+          break;
+        case ScriptContainerType.Header:
+          result = new HeaderStackItem(scriptContainer.value);
+          break;
+        case ScriptContainerType.Signers:
+          result = new SignersStackItem(scriptContainer.value);
           break;
         /* istanbul ignore next */
         default:
@@ -498,125 +452,18 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
   }),
 };
 
-export const SYSCALL_ALIASES: { readonly [key: string]: string | undefined } = {
-  'Neo.Iterator.Next': 'Neo.Enumerator.Next',
-  'Neo.Iterator.Value': 'Neo.Enumerator.Value',
-  'System.Runtime.GetTrigger': 'Neo.Runtime.GetTrigger',
-  'System.Runtime.CheckWitness': 'Neo.Runtime.CheckWitness',
-  'System.Runtime.Notify': 'Neo.Runtime.Notify',
-  'System.Runtime.Log': 'Neo.Runtime.Log',
-  'System.Runtime.GetTime': 'Neo.Runtime.GetTime',
-  'System.Runtime.Serialize': 'Neo.Runtime.Serialize',
-  'System.Runtime.Deserialize': 'Neo.Runtime.Deserialize',
-  'System.Blockchain.GetHeight': 'Neo.Blockchain.GetHeight',
-  'System.Blockchain.GetHeader': 'Neo.Blockchain.GetHeader',
-  'System.Blockchain.GetBlock': 'Neo.Blockchain.GetBlock',
-  'System.Blockchain.GetTransaction': 'Neo.Blockchain.GetTransaction',
-  'System.Blockchain.GetTransactionHeight': 'Neo.Blockchain.GetTransactionHeight',
-  'System.Blockchain.GetContract': 'Neo.Blockchain.GetContract',
-  'System.Header.GetIndex': 'Neo.Header.GetIndex',
-  'System.Header.GetHash': 'Neo.Header.GetHash',
-  'System.Header.GetPrevHash': 'Neo.Header.GetPrevHash',
-  'System.Header.GetTimestamp': 'Neo.Header.GetTimestamp',
-  'System.Block.GetTransactionCount': 'Neo.Block.GetTransactionCount',
-  'System.Block.GetTransactions': 'Neo.Block.GetTransactions',
-  'System.Block.GetTransaction': 'Neo.Block.GetTransaction',
-  'System.Transaction.GetHash': 'Neo.Transaction.GetHash',
-  'System.Contract.Destroy': 'Neo.Contract.Destroy',
-  'System.Contract.GetStorageContext': 'Neo.Contract.GetStorageContext',
-  'System.Storage.GetContext': 'Neo.Storage.GetContext',
-  'System.Storage.GetReadOnlyContext': 'Neo.Storage.GetReadOnlyContext',
-  'System.Storage.Get': 'Neo.Storage.Get',
-  'System.Storage.Put': 'Neo.Storage.Put',
-  'System.Storage.Delete': 'Neo.Storage.Delete',
-  'System.StorageContext.AsReadOnly': 'Neo.StorageContext.AsReadOnly',
-  'AntShares.Runtime.CheckWitness': 'Neo.Runtime.CheckWitness',
-  'AntShares.Runtime.Notify': 'Neo.Runtime.Notify',
-  'AntShares.Runtime.Log': 'Neo.Runtime.Log',
-  'AntShares.Blockchain.GetHeight': 'Neo.Blockchain.GetHeight',
-  'AntShares.Blockchain.GetHeader': 'Neo.Blockchain.GetHeader',
-  'AntShares.Blockchain.GetBlock': 'Neo.Blockchain.GetBlock',
-  'AntShares.Blockchain.GetTransaction': 'Neo.Blockchain.GetTransaction',
-  'AntShares.Blockchain.GetAccount': 'Neo.Blockchain.GetAccount',
-  'AntShares.Blockchain.GetValidators': 'Neo.Blockchain.GetValidators',
-  'AntShares.Blockchain.GetAsset': 'Neo.Blockchain.GetAsset',
-  'AntShares.Blockchain.GetContract': 'Neo.Blockchain.GetContract',
-  'AntShares.Header.GetHash': 'Neo.Header.GetHash',
-  'AntShares.Header.GetVersion': 'Neo.Header.GetVersion',
-  'AntShares.Header.GetPrevHash': 'Neo.Header.GetPrevHash',
-  'AntShares.Header.GetMerkleRoot': 'Neo.Header.GetMerkleRoot',
-  'AntShares.Header.GetTimestamp': 'Neo.Header.GetTimestamp',
-  'AntShares.Header.GetConsensusData': 'Neo.Header.GetConsensusData',
-  'AntShares.Header.GetNextConsensus': 'Neo.Header.GetNextConsensus',
-  'AntShares.Block.GetTransactionCount': 'Neo.Block.GetTransactionCount',
-  'AntShares.Block.GetTransactions': 'Neo.Block.GetTransactions',
-  'AntShares.Block.GetTransaction': 'Neo.Block.GetTransaction',
-  'AntShares.Transaction.GetHash': 'Neo.Transaction.GetHash',
-  'AntShares.Transaction.GetType': 'Neo.Transaction.GetType',
-  'AntShares.Transaction.GetAttributes': 'Neo.Transaction.GetAttributes',
-  'AntShares.Transaction.GetInputs': 'Neo.Transaction.GetInputs',
-  'AntShares.Transaction.GetOutputs': 'Neo.Transaction.GetOutputs',
-  'AntShares.Transaction.GetReferences': 'Neo.Transaction.GetReferences',
-  'AntShares.Attribute.GetUsage': 'Neo.Attribute.GetUsage',
-  'AntShares.Attribute.GetData': 'Neo.Attribute.GetData',
-  'AntShares.Input.GetHash': 'Neo.Input.GetHash',
-  'AntShares.Input.GetIndex': 'Neo.Input.GetIndex',
-  'AntShares.Output.GetAssetId': 'Neo.Output.GetAssetId',
-  'AntShares.Output.GetValue': 'Neo.Output.GetValue',
-  'AntShares.Output.GetScriptHash': 'Neo.Output.GetScriptHash',
-  'AntShares.Account.GetScriptHash': 'Neo.Account.GetScriptHash',
-  'AntShares.Account.GetVotes': 'Neo.Account.GetVotes',
-  'AntShares.Account.GetBalance': 'Neo.Account.GetBalance',
-  'AntShares.Asset.GetAssetId': 'Neo.Asset.GetAssetId',
-  'AntShares.Asset.GetAssetType': 'Neo.Asset.GetAssetType',
-  'AntShares.Asset.GetAmount': 'Neo.Asset.GetAmount',
-  'AntShares.Asset.GetAvailable': 'Neo.Asset.GetAvailable',
-  'AntShares.Asset.GetPrecision': 'Neo.Asset.GetPrecision',
-  'AntShares.Asset.GetOwner': 'Neo.Asset.GetOwner',
-  'AntShares.Asset.GetAdmin': 'Neo.Asset.GetAdmin',
-  'AntShares.Asset.GetIssuer': 'Neo.Asset.GetIssuer',
-  'AntShares.Contract.GetScript': 'Neo.Contract.GetScript',
-  'AntShares.Storage.GetContext': 'Neo.Storage.GetContext',
-  'AntShares.Storage.Get': 'Neo.Storage.Get',
-  'AntShares.Account.SetVotes': 'Neo.Account.SetVotes',
-  'AntShares.Validator.Register': 'Neo.Validator.Register',
-  'AntShares.Asset.Create': 'Neo.Asset.Create',
-  'AntShares.Asset.Renew': 'Neo.Asset.Renew',
-  'AntShares.Contract.Create': 'Neo.Contract.Create',
-  'AntShares.Contract.Migrate': 'Neo.Contract.Migrate',
-  'AntShares.Contract.GetStorageContext': 'Neo.Contract.GetStorageContext',
-  'AntShares.Contract.Destroy': 'Neo.Contract.Destroy',
-  'AntShares.Storage.Put': 'Neo.Storage.Put',
-  'AntShares.Storage.Delete': 'Neo.Storage.Delete',
-};
-
-const SYS_CALL_STRING_LENGTH = 252;
-
 const SYSCALLS_BY_HASH = _.fromPairs(
-  Object.entries(SYSCALLS).map(([key, value]) => [toSysCallHash(key as SysCallEnum), value]),
+  Object.entries(SYSCALLS).map(([key, value]) => [toSysCallHashNum(key as SysCallEnum), value]),
 );
 
 export const lookupSysCall = ({ context }: { readonly context: ExecutionContext }) => {
   const { code, pc } = context;
   const reader = new BinaryReader(code, pc);
-
-  const sysCallBytes = reader.readVarBytesLE(SYS_CALL_STRING_LENGTH);
-  let key: SysCallHash;
-  let debugName: string;
-  if (sysCallBytes.length === 4) {
-    key = sysCallBytes.readUInt32LE(0) as SysCallHash;
-    debugName = sysCallBytes.toString('hex');
-  } else {
-    const sysCallName = utils.toASCII(sysCallBytes);
-    const aliasName = SYSCALL_ALIASES[sysCallName];
-    const canonicalName = aliasName === undefined ? sysCallName : aliasName;
-    key = toSysCallHash(assertSysCall(canonicalName));
-    debugName = canonicalName;
-  }
+  const key = reader.readUInt32LE();
   const createCall = SYSCALLS_BY_HASH[key];
   // tslint:disable-next-line: strict-type-predicates
   if (createCall === undefined) {
-    throw new UnknownSysCallError(context, debugName);
+    throw new UnknownSysCallHashError(context, key);
   }
 
   const nextContext = {

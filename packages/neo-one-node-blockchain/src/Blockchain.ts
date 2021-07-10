@@ -372,6 +372,10 @@ export class Blockchain {
     return this.native.Ledger.getBlock(this.storage, hash);
   }
 
+  public async getContract(hash: UInt160) {
+    return this.native.ContractManagement.getContract(this.storage, hash);
+  }
+
   public async getTrimmedBlock(hash: UInt256) {
     return this.native.Ledger.getTrimmedBlock(this.storage, hash);
   }

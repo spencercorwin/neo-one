@@ -4,6 +4,7 @@ import BN from 'bn.js';
 import { Action } from './action';
 import { Block } from './Block';
 import { ContractState } from './ContractState';
+import { InvalidScriptContainerTypeError } from './errors';
 import { ExecutionResult } from './executionResult';
 import { Header } from './Header';
 import { ExtensiblePayload } from './payload';
@@ -12,6 +13,48 @@ import { Transaction } from './transaction';
 import { Verifiable } from './Verifiable';
 
 export { SerializeWire, SerializableWire, createSerializeWire } from '@neo-one/client-common';
+
+export enum ScriptContainerType {
+  Transaction = 0x00,
+  Block = 0x01,
+  Header = 0x02,
+  Signers = 0x03,
+  ExtensiblePayload = 0x04,
+}
+
+export type ScriptContainer =
+  | {
+      readonly type: ScriptContainerType.Transaction;
+      readonly value: Transaction;
+    }
+  | {
+      readonly type: ScriptContainerType.Block;
+      readonly value: Block;
+    }
+  | {
+      readonly type: ScriptContainerType.ExtensiblePayload;
+      readonly value: ExtensiblePayload;
+    }
+  | {
+      readonly type: ScriptContainerType.Signers;
+      readonly value: Signers;
+    }
+  | {
+      readonly type: ScriptContainerType.Header;
+      readonly value: Header;
+    };
+
+const isScriptContainerType = (value: number): value is ScriptContainerType =>
+  // tslint:disable-next-line strict-type-predicates
+  ScriptContainerType[value] !== undefined;
+
+export const assertScriptContainerType = (value: number): ScriptContainerType => {
+  if (isScriptContainerType(value)) {
+    return value;
+  }
+
+  throw new InvalidScriptContainerTypeError(value);
+};
 
 // TODO: may need to remove signers from here? And everywhere?
 export type SerializableContainerType = 'Block' | 'Header' | 'Signers' | 'Transaction' | 'ExtensiblePayload';

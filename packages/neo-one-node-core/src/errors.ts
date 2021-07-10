@@ -67,6 +67,10 @@ export const InvalidPrimitiveStackItemError = makeErrorWithCode(
   'INVALID_PRIMITIVE_STACK_ITEM_ERROR',
   () => 'Invalid PrimitiveStackItem found; expected one of [Boolean, ByteString, Integer].',
 );
+export const InvalidCompoundStackItemError = makeErrorWithCode(
+  'INVALID_COMPOUND_STACK_ITEM_ERROR',
+  () => 'Invalid CompoundStackItem found; expected one of [Map, Struct, Array].',
+);
 export const InvalidTransactionConsensusOptionsError = makeErrorWithCode(
   'INVALID_TRANSACTION_CONSENSUS_OPTIONS_ERROR',
   (property: string) => `Expected fully formed transaction for this method, but ${property} was undefined.`,

@@ -1,4 +1,4 @@
-import { Script, StackItemType } from '@neo-one/client-common';
+import { BinaryWriter, Script, StackItemType } from '@neo-one/client-common';
 import { BN } from 'bn.js';
 import {
   ArrayContractParameter,
@@ -48,5 +48,14 @@ export class PointerStackItem extends StackItemBase {
       new ByteArrayContractParameter(this.script.buffer),
       new IntegerContractParameter(new BN(this.position)),
     ]);
+  }
+
+  protected serializeInternal(): Buffer {
+    const writer = new BinaryWriter();
+    writer.writeUInt8(StackItemType.Pointer);
+    writer.writeInt32LE(this.position);
+    writer.writeVarBytesLE(this.script.buffer);
+
+    return writer.toBuffer();
   }
 }

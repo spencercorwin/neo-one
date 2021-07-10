@@ -7,25 +7,52 @@ import {
   StackItemType,
 } from '@neo-one/client-common';
 import { utils } from '@neo-one/utils';
-import { InvalidPrimitiveStackItemError, InvalidStackItemError, InvalidStackItemTypeError } from '../errors';
+import {
+  InvalidCompoundStackItemError,
+  InvalidPrimitiveStackItemError,
+  InvalidStackItemError,
+  InvalidStackItemTypeError,
+} from '../errors';
 import { ArrayStackItem } from './ArrayStackItem';
 import { BooleanStackItem } from './BooleanStackItem';
 import { BufferStackItem } from './BufferStackItem';
 import { ByteStringStackItem } from './ByteStringStackItem';
 import { IntegerStackItem } from './IntegerStackItem';
 import { InteropInterface } from './InteropInterface';
+import {
+  BlockStackItem,
+  ContractStackItem,
+  ECPointStackItem,
+  HeaderStackItem,
+  StorageContextStackItem,
+  TransactionStackItem,
+  UInt160StackItem,
+  UInt256StackItem,
+  WitnessStackItem,
+} from './interopStackItems';
 import { MapStackItem } from './MapStackItem';
 import { NullStackItem } from './NullStackItem';
 import { PointerStackItem } from './PointerStackItem';
 import { StructStackItem } from './StructStackItem';
 
 export type PrimitiveStackItem = BooleanStackItem | IntegerStackItem | ByteStringStackItem;
+export type CompoundStackItem = ArrayStackItem | StructStackItem | MapStackItem;
+
+export type InteropTypeStackItem =
+  | BlockStackItem
+  | ContractStackItem
+  | ECPointStackItem
+  | HeaderStackItem
+  | StorageContextStackItem
+  | TransactionStackItem
+  | UInt160StackItem
+  | UInt256StackItem
+  | WitnessStackItem;
 
 export type StackItem =
-  | ArrayStackItem
+  | CompoundStackItem
   | BufferStackItem
   | InteropInterface
-  | MapStackItem
   | NullStackItem
   | PointerStackItem
   | StructStackItem
@@ -87,6 +114,8 @@ export const isArrayLikeStackItem = (item: any): item is ArrayStackItem | Struct
   isArrayStackItem(item) || isStructStackItem(item);
 export const isPrimitiveStackItem = (item: any): item is PrimitiveStackItem =>
   isBooleanStackItem(item) || isByteStringStackItem(item) || isIntegerStackItem(item);
+export const isCompoundStackItem = (item: any): item is CompoundStackItem =>
+  isMapStackItem(item) || isArrayStackItem(item) || isStructStackItem(item);
 
 export const assertAnyStackItem: (item: any) => NullStackItem = getAssertStackItemType(
   isNullStackItem,
@@ -141,6 +170,13 @@ export const assertPrimitiveStackItem = (item: any): PrimitiveStackItem => {
   }
 
   throw new InvalidPrimitiveStackItemError();
+};
+export const assertCompoundStackItem = (item: any): CompoundStackItem => {
+  if (isCompoundStackItem(item)) {
+    return item;
+  }
+
+  throw new InvalidCompoundStackItemError();
 };
 
 export const stackItemToJSON = (item: StackItem, context?: Set<StackItem>): StackItemJSON => {

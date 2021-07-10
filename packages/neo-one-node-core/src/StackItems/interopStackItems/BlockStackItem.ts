@@ -1,4 +1,5 @@
-import { Block, Header } from '@neo-one/node-core';
+import { Block } from '../../Block';
+import { Header } from '../../Header';
 import { EquatableKeyStackItem } from './EquatableKeyStackItem';
 
 export class BlockStackItem extends EquatableKeyStackItem<Block> {

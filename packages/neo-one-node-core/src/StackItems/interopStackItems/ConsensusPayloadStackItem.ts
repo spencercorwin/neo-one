@@ -1,4 +1,4 @@
-import { ConsensusPayload } from '@neo-one/node-core';
+import { ConsensusPayload } from '../../consensus';
 import { EquatableKeyStackItem } from './EquatableKeyStackItem';
 
 export class ConsensusPayloadStackItem extends EquatableKeyStackItem<ConsensusPayload> {

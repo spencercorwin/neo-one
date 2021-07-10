@@ -20,6 +20,10 @@ export class ByteStringStackItem extends PrimitiveStackItemBase {
     });
   }
 
+  public get size() {
+    return this.memory.length;
+  }
+
   public equals(other: StackItem): boolean {
     if (this.size > maxComparableSize) {
       throw new Error('The operand exceeds the maximum comparable size.');

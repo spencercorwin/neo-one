@@ -1,4 +1,4 @@
-import { StackItemType } from '@neo-one/client-common';
+import { BinaryWriter, StackItemType } from '@neo-one/client-common';
 import { BN } from 'bn.js';
 import { BooleanContractParameter, ContractParameter } from '../contractParameter';
 import { PrimitiveStackItemBase } from './PrimitiveStackItemBase';
@@ -20,6 +20,10 @@ export class BooleanStackItem extends PrimitiveStackItemBase {
     this.value = value;
   }
 
+  public get size() {
+    return this.memory.length;
+  }
+
   public equals(other: StackItem) {
     if (isBooleanStackItem(other)) {
       return this.value === other.getBoolean();
@@ -38,5 +42,13 @@ export class BooleanStackItem extends PrimitiveStackItemBase {
 
   public toContractParameter(_seen: Set<StackItemBase> = new Set()): ContractParameter {
     return new BooleanContractParameter(this.value);
+  }
+
+  protected serializeInternal(): Buffer {
+    const writer = new BinaryWriter();
+    writer.writeUInt8(StackItemType.Boolean);
+    writer.writeBoolean(this.value);
+
+    return writer.toBuffer();
   }
 }

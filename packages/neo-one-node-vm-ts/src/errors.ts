@@ -53,6 +53,9 @@ export const NumberTooLargeError = makeErrorWithCode('VM_ERROR', (context: Execu
 export const AltStackUnderflowError = makeErrorWithCode('VM_ERROR', (context: ExecutionContext) =>
   getMessage(context, `Stack Underflow.`),
 );
+export const TryStackUnderflowError = makeErrorWithCode('VM_ERROR', (context: ExecutionContext) =>
+  getMessage(context, `Stack Underflow.`),
+);
 export const StackOverflowError = makeErrorWithCode('VM_ERROR', (context: ExecutionContext) =>
   getMessage(context, 'Stack Overflow'),
 );
@@ -66,6 +69,9 @@ export const CodeOverflowError = makeErrorWithCode('VM_ERROR', (context: Executi
   getMessage(context, 'Code Overflow'),
 );
 export const UnknownSysCallError = makeErrorWithCode('VM_ERROR', (context: ExecutionContext, sysCall: string) =>
+  getMessage(context, `Unknown SysCall: ${sysCall}`),
+);
+export const UnknownSysCallHashError = makeErrorWithCode('VM_ERROR', (context: ExecutionContext, sysCall: number) =>
   getMessage(context, `Unknown SysCall: ${sysCall}`),
 );
 export const UnknownOPError = makeErrorWithCode('VM_ERROR', (context: ExecutionContext) =>

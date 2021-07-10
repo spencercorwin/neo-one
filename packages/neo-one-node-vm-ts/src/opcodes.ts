@@ -1,18 +1,40 @@
 import {
+  assertStackItemType,
+  BinaryReader,
   common,
-  crypto,
   isStackItemType,
   Op as OpCodeToByteCode,
   OpCode,
+  Script,
   StackItemType,
   UInt160,
   utils,
   VMState,
 } from '@neo-one/client-common';
+import {
+  ArrayStackItem,
+  assertArrayStackItem,
+  assertBufferStackItem,
+  assertCompoundStackItem,
+  assertMapStackItem,
+  assertPrimitiveStackItem,
+  BooleanStackItem,
+  BufferStackItem,
+  ByteStringStackItem,
+  IntegerStackItem,
+  MapStackItem,
+  NullStackItem,
+  PointerStackItem,
+  StackItem,
+  StructStackItem,
+} from '@neo-one/node-core';
+import { utils as oneUtils } from '@neo-one/utils';
 // tslint:disable-next-line:match-default-export-name
 import bitwise from 'bitwise';
 import { BN } from 'bn.js';
+import { MAX_STACK_SIZE } from 'dist/cjs/constants';
 import _ from 'lodash';
+import { InvalidStackItemError } from '../../neo-one-node-core/src/errors';
 import {
   ExecutionContext,
   ExecutionStack,
@@ -27,9 +49,7 @@ import {
 import {
   CodeOverflowError,
   ContainerTooLargeError,
-  ContractNoDynamicInvokeError,
   InsufficientReturnValueError,
-  InvalidCheckMultisigArgumentsError,
   InvalidHasKeyIndexError,
   InvalidPackCountError,
   InvalidPickItemKeyError,
@@ -52,17 +72,6 @@ import {
   XDropNegativeError,
   XDropUnderflowError,
 } from './errors';
-import {
-  ArrayStackItem,
-  BooleanStackItem,
-  BufferStackItem,
-  IntegerStackItem,
-  MapStackItem,
-  StackItem,
-  StructStackItem,
-  UInt160StackItem,
-  UInt256StackItem,
-} from './stackItem';
 import { lookupSysCall } from './syscalls';
 import { vmUtils } from './vmUtils';
 
@@ -90,18 +99,18 @@ export interface CreateOpArgs {
 export const createOp = ({
   name,
   in: _in = 0,
-  inAlt = 0,
+  inTry = 0,
   out = 0,
-  outAlt = 0,
+  outTry = 0,
   invocation = 0,
   fee: feeIn,
   invoke,
 }: {
   readonly name: OpCode;
   readonly in?: number;
-  readonly inAlt?: number;
+  readonly inTry?: number;
   readonly out?: number;
-  readonly outAlt?: number;
+  readonly outTry?: number;
   readonly invocation?: number;
   readonly array?: number;
   readonly item?: number;
@@ -119,9 +128,9 @@ export const createOp = ({
     op: {
       name,
       in: _in,
-      inAlt,
+      inTry,
       out,
-      outAlt,
+      outTry,
       invocation,
       fee,
       invoke,
@@ -137,6 +146,49 @@ const pushNumber = ({ name, value }: { readonly name: OpCode; readonly value: nu
       context,
       results: [new IntegerStackItem(new BN(value))],
     }),
+  });
+
+const pushInt = ({ name, numBytes }: { readonly name: OpCode; readonly numBytes: 1 | 2 | 4 | 8 | 16 | 32 }) =>
+  createOp({
+    name,
+    out: 1,
+    invoke: ({ context }) => {
+      const { code, pc } = context;
+      const reader = new BinaryReader(code, pc);
+      let readNum;
+      switch (numBytes) {
+        case 1:
+          readNum = reader.readInt8();
+          break;
+        case 2:
+          readNum = reader.readInt16LE();
+          break;
+        case 4:
+          readNum = reader.readInt32LE();
+          break;
+        case 8:
+          readNum = reader.readInt64LE();
+          break;
+        case 16:
+          readNum = reader.readInt128LE();
+          break;
+        case 32:
+          readNum = reader.readInt256LE();
+          break;
+        default:
+          oneUtils.assertNever(numBytes);
+          throw new Error('For TS');
+      }
+
+      return {
+        context: {
+          ...context,
+          pc: pc + numBytes,
+        },
+
+        results: [new IntegerStackItem(new BN(readNum))],
+      };
+    },
   });
 
 const pushData = ({ name, numBytes }: { readonly name: OpCode; readonly numBytes: 1 | 2 | 4 }) =>
@@ -174,23 +226,98 @@ const pushData = ({ name, numBytes }: { readonly name: OpCode; readonly numBytes
     },
   });
 
-const jump = ({ name, checkTrue }: { readonly name: OpCode; readonly checkTrue?: boolean }) =>
+const loadFromSlot = ({
+  getSlot,
+  index,
+  name,
+}: {
+  // tslint:disable-next-line: readonly-array
+  readonly getSlot: (ctx: ExecutionContext) => StackItem[] | undefined;
+  readonly index?: number;
+  readonly name: OpCode;
+}) =>
   createOp({
     name,
-    in: checkTrue === undefined ? 0 : 1,
+    out: 1,
+    invoke: ({ context }) => {
+      const slot = getSlot(context);
+      if (slot === undefined) {
+        throw new Error('Slot has not been initialized');
+      }
+
+      const realIndex = index === undefined ? context.code.readUInt8(context.pc) : index;
+
+      if (realIndex < 0 || realIndex >= slot.length) {
+        throw new Error(`Index out of range when loading from slot: ${realIndex}`);
+      }
+
+      // TODO: what if this register doesn't contain anything? Push null? Or push nothing?
+      return {
+        context: { ...context, pc: index === undefined ? context.pc + 1 : context.pc },
+        results: [slot[realIndex]],
+      };
+    },
+  });
+
+const storeToSlot = ({
+  name,
+  index,
+  getSlot,
+}: {
+  readonly name: OpCode;
+  readonly index?: number;
+  // tslint:disable-next-line: readonly-array
+  readonly getSlot: (ctx: ExecutionContext) => StackItem[] | undefined;
+}) =>
+  createOp({
+    name,
+    in: 1,
+    invoke: ({ context, args }) => {
+      const slot = getSlot(context);
+      if (slot === undefined) {
+        throw new Error('Slot has not been initialized');
+      }
+
+      const realIndex = index === undefined ? context.code.readUInt8(context.pc) : index;
+
+      if (realIndex < 0 || realIndex >= slot.length) {
+        throw new Error(`Index out of range when loading from slot: ${realIndex}`);
+      }
+
+      // tslint:disable-next-line: no-array-mutation no-object-mutation
+      slot[realIndex] = args[0];
+
+      return { context: { ...context, pc: index === undefined ? context.pc + 1 : context.pc } };
+    },
+  });
+
+const jump = ({
+  name,
+  checkTrue,
+  long,
+  jmpCheck,
+}: {
+  readonly name: OpCode;
+  readonly checkTrue?: boolean;
+  readonly long: boolean;
+  readonly jmpCheck?: (args: readonly StackItem[]) => boolean;
+}) =>
+  createOp({
+    name,
+    in: checkTrue === undefined ? 0 : jmpCheck !== undefined ? 2 : 1,
     invoke: ({ context, args }) => {
       const { code } = context;
       let { pc } = context;
-      const offset = code.readInt16LE(pc);
-      pc += 2;
-      const newPC = pc + offset - 3;
+      const offset = long ? code.readInt32LE(pc) : code.readInt8(pc);
+      pc += long ? 3 : 1;
+      const newPC = pc + offset - (long ? 4 : 2);
       if (newPC < 0 || newPC > code.length) {
         throw new CodeOverflowError(context);
       }
 
       let shouldJump = true;
       if (checkTrue !== undefined) {
-        shouldJump = args[0].asBoolean();
+        shouldJump = jmpCheck === undefined ? args[0].getBoolean() : jmpCheck(args);
         if (!checkTrue) {
           shouldJump = !shouldJump;
         }
@@ -221,17 +348,11 @@ const call = ({ name, tailCall }: { readonly name: OpCode; readonly tailCall?: b
         const { pc, scriptHash } = context;
         let hash = common.bufferToUInt160(context.code.slice(pc, pc + 20));
         if (isDynamic(hash)) {
-          hash = common.bufferToUInt160(args[0].asBuffer());
+          hash = common.bufferToUInt160(args[0].getBuffer());
 
-          const executingContract = await context.blockchain.contract.get({
-            hash: scriptHash,
-          });
-
-          if (!executingContract.hasDynamicInvoke) {
-            throw new ContractNoDynamicInvokeError(context, common.uInt160ToString(scriptHash));
-          }
+          const executingContract = await context.blockchain.getContract(scriptHash);
         }
-        const contract = await context.blockchain.contract.get({ hash });
+        const contract = await context.blockchain.getContract(hash);
         const scriptHashStack = [hash, ...context.scriptHashStack];
         const resultContext = await context.engine.executeScript({
           code: contract.script,
@@ -240,7 +361,7 @@ const call = ({ name, tailCall }: { readonly name: OpCode; readonly tailCall?: b
           gasLeft: context.gasLeft,
           options: {
             stack: context.stack,
-            stackAlt: context.stackAlt,
+            stackTry: context.stackTry,
             depth: tailCall ? context.depth : context.depth + 1,
             createdContracts: context.createdContracts,
             scriptHashStack: tailCall ? scriptHashStack.slice(0, scriptHashStack.length - 1) : scriptHashStack,
@@ -248,6 +369,9 @@ const call = ({ name, tailCall }: { readonly name: OpCode; readonly tailCall?: b
             entryScriptHash: context.entryScriptHash,
             returnValueCount: -1,
             stackCount: context.stackCount,
+            staticFields: context.staticFields,
+            localVariables: context.localVariables,
+            arguments: context.arguments,
           },
         });
 
@@ -277,9 +401,13 @@ const call = ({ name, tailCall }: { readonly name: OpCode; readonly tailCall?: b
             returnValueCount: context.returnValueCount,
             stackCount: resultContext.stackCount,
             stack: resultContext.stack,
-            stackAlt: resultContext.stackAlt,
+            stackTry: resultContext.stackTry,
             gasLeft: resultContext.gasLeft,
             createdContracts: resultContext.createdContracts,
+            // TODO: check this
+            staticFields: resultContext.staticFields,
+            localVariables: resultContext.localVariables,
+            arguments: resultContext.arguments,
           },
         };
       },
@@ -312,7 +440,7 @@ const callIsolated = ({
       invoke: async ({ context, args }) => {
         const { pc, scriptHash } = context;
         const hash = dynamicCall
-          ? common.bufferToUInt160(args[0].asBuffer())
+          ? common.bufferToUInt160(args[0].getBuffer())
           : common.bufferToUInt160(context.code.slice(pc + 2, pc + 22));
 
         if (tailCall && context.returnValueCount !== returnValueCount) {
@@ -320,16 +448,10 @@ const callIsolated = ({
         }
 
         if (dynamicCall) {
-          const executingContract = await context.blockchain.contract.get({
-            hash: scriptHash,
-          });
-
-          if (!executingContract.hasDynamicInvoke) {
-            throw new ContractNoDynamicInvokeError(context, common.uInt160ToString(scriptHash));
-          }
+          const executingContract = await context.blockchain.getContract(scriptHash);
         }
 
-        const contract = await context.blockchain.contract.get({ hash });
+        const contract = await context.blockchain.getContract(hash);
         const nextStack = dynamicCall ? args.slice(1) : args;
         const scriptHashStack = [hash, ...context.scriptHashStack];
 
@@ -340,7 +462,7 @@ const callIsolated = ({
           gasLeft: context.gasLeft,
           options: {
             stack: nextStack,
-            stackAlt: [],
+            stackTry: [],
             depth: tailCall ? context.depth : context.depth + 1,
             createdContracts: context.createdContracts,
             scriptHashStack: tailCall ? scriptHashStack.slice(0, scriptHashStack.length - 1) : scriptHashStack,
@@ -348,6 +470,10 @@ const callIsolated = ({
             entryScriptHash: context.entryScriptHash,
             returnValueCount,
             stackCount: context.stackCount + nextStack.reduce((acc, value) => acc + value.increment(), 0),
+            // TODO: check this
+            staticFields: context.staticFields,
+            localVariables: context.localVariables,
+            arguments: context.arguments,
           },
         });
 
@@ -370,7 +496,7 @@ const callIsolated = ({
           stackCount += resultContext.stack.slice(returnValueCount).reduce((acc, value) => acc + value.decrement(), 0);
         }
 
-        stackCount += resultContext.stackAlt.reduce((acc, value) => acc + value.decrement(), 0);
+        stackCount += resultContext.stackTry.reduce((acc, value) => acc + value.decrement(), 0);
 
         return {
           context: {
@@ -391,9 +517,13 @@ const callIsolated = ({
             returnValueCount: context.returnValueCount,
             stackCount,
             stack: stack.concat(context.stack),
-            stackAlt: context.stackAlt,
+            stackTry: context.stackTry,
             gasLeft: resultContext.gasLeft,
             createdContracts: resultContext.createdContracts,
+            // TODO: check this
+            staticFields: resultContext.staticFields,
+            localVariables: resultContext.localVariables,
+            arguments: resultContext.arguments,
           },
         };
       },
@@ -416,7 +546,7 @@ const functionCallIsolated = ({ name }: { readonly name: OpCode }): OpCreate => 
       name,
       in: parametersCount,
       invocation: 1,
-      invoke: async ({ context, args }) => {
+      invoke: async ({ context, args, argsTry }) => {
         const resultContext = await context.engine.executeScript({
           code: context.code,
           blockchain: context.blockchain,
@@ -424,7 +554,7 @@ const functionCallIsolated = ({ name }: { readonly name: OpCode }): OpCreate => 
           gasLeft: context.gasLeft,
           options: {
             stack: args,
-            stackAlt: [],
+            stackTry: argsTry,
             depth: context.depth + 1,
             createdContracts: context.createdContracts,
             scriptHashStack: [context.scriptHash, ...context.scriptHashStack],
@@ -433,6 +563,10 @@ const functionCallIsolated = ({ name }: { readonly name: OpCode }): OpCreate => 
             returnValueCount,
             pc: context.pc + jumpCount + 1,
             stackCount: context.stackCount + args.reduce((acc, value) => acc + value.increment(), 0),
+            // TODO: check this
+            staticFields: context.staticFields,
+            localVariables: context.localVariables,
+            arguments: context.arguments,
           },
         });
 
@@ -453,7 +587,7 @@ const functionCallIsolated = ({ name }: { readonly name: OpCode }): OpCreate => 
           stackCount += resultContext.stack.slice(returnValueCount).reduce((acc, value) => acc + value.decrement(), 0);
         }
 
-        stackCount += resultContext.stackAlt.reduce((acc, value) => acc + value.decrement(), 0);
+        stackCount += resultContext.stackTry.reduce((acc, value) => acc + value.decrement(), 0);
 
         return {
           context: {
@@ -472,9 +606,13 @@ const functionCallIsolated = ({ name }: { readonly name: OpCode }): OpCreate => 
             returnValueCount: context.returnValueCount,
             stackCount,
             stack: stack.concat(context.stack),
-            stackAlt: context.stackAlt,
+            stackTry: context.stackTry,
             gasLeft: resultContext.gasLeft,
             createdContracts: resultContext.createdContracts,
+            // TODO: check this
+            staticFields: resultContext.staticFields,
+            localVariables: resultContext.localVariables,
+            arguments: resultContext.arguments,
           },
         };
       },
@@ -492,10 +630,10 @@ const newArrayOrStruct = ({ name }: { readonly name: 'NEWARRAY' | 'NEWSTRUCT' })
     invoke: ({ context, args }) => {
       let results;
       if (args[0].isArray()) {
-        const array = args[0].asArray();
+        const array = args[0].getArray();
         results = name === 'NEWARRAY' ? [new ArrayStackItem(array)] : [new StructStackItem(array)];
       } else {
-        const count = vmUtils.toNumber(context, args[0].asBigIntegerUnsafe());
+        const count = vmUtils.toNumber(context, args[0].getBigIntegerUnsafe());
 
         if (count > MAX_ARRAY_SIZE) {
           throw new ContainerTooLargeError(context);
@@ -509,42 +647,19 @@ const newArrayOrStruct = ({ name }: { readonly name: 'NEWARRAY' | 'NEWSTRUCT' })
     },
   });
 
-const JMP = jump({ name: 'JMP' });
+const JMP = jump({ name: 'JMP', long: false });
 
 const OPCODE_PAIRS = (
   [
-    [
-      OpCodeToByteCode.PUSH0,
-      createOp({
-        name: 'PUSH0',
-        out: 1,
-        invoke: ({ context }) => ({
-          context,
-          results: [new BufferStackItem(Buffer.alloc(0, 0))],
-        }),
-      }),
-    ],
+    [OpCodeToByteCode.PUSHINT8, pushInt({ name: 'PUSHINT8', numBytes: 1 })],
+    [OpCodeToByteCode.PUSHINT16, pushInt({ name: 'PUSHINT16', numBytes: 2 })],
+    [OpCodeToByteCode.PUSHINT32, pushInt({ name: 'PUSHINT32', numBytes: 4 })],
+    [OpCodeToByteCode.PUSHINT64, pushInt({ name: 'PUSHINT64', numBytes: 8 })],
+    [OpCodeToByteCode.PUSHINT128, pushInt({ name: 'PUSHINT128', numBytes: 16 })],
+    [OpCodeToByteCode.PUSHINT256, pushInt({ name: 'PUSHINT256', numBytes: 32 })],
     // tslint:disable-next-line: readonly-array
   ] as ReadonlyArray<[number, OpObject]>
 )
-  .concat(
-    // tslint:disable-next-line: readonly-array
-    _.range(0x01, 0x4c).map<[number, OpObject]>((idx) => [
-      idx,
-      createOp({
-        // tslint:disable-next-line no-any
-        name: `PUSHBYTES${idx}` as any,
-        out: 1,
-        invoke: ({ context }) => ({
-          context: {
-            ...context,
-            pc: context.pc + idx,
-          },
-          results: [new BufferStackItem(context.code.slice(context.pc, context.pc + idx))],
-        }),
-      }),
-    ]),
-  )
   .concat([
     [OpCodeToByteCode.PUSHDATA1, pushData({ name: 'PUSHDATA1', numBytes: 1 })],
     [OpCodeToByteCode.PUSHDATA2, pushData({ name: 'PUSHDATA2', numBytes: 2 })],
@@ -553,14 +668,105 @@ const OPCODE_PAIRS = (
   ])
   .concat(
     // tslint:disable-next-line: readonly-array
-    _.range(0x51, 0x61).map<[number, OpObject]>((idx) => {
-      const value = idx - 0x50;
+    _.range(OpCodeToByteCode.LDSFLD0, OpCodeToByteCode.LDSFLD6).map<[number, OpObject]>((idx) => {
+      const value = idx - OpCodeToByteCode.LDSFLD0 - 1;
 
-      // tslint:disable-next-line no-any
-      return [idx, pushNumber({ name: `PUSH${value}` as any, value })];
+      return [
+        idx,
+        loadFromSlot({ name: `LDSFLD${value}` as OpCode, index: value, getSlot: (ctx) => ctx.staticFields }),
+      ];
+    }),
+  )
+  .concat(
+    // tslint:disable-next-line: readonly-array
+    _.range(OpCodeToByteCode.STSFLD0, OpCodeToByteCode.STSFLD6).map<[number, OpObject]>((idx) => {
+      const value = idx - OpCodeToByteCode.STSFLD0 - 1;
+
+      return [idx, storeToSlot({ name: `STSFLD${value}` as OpCode, index: value, getSlot: (ctx) => ctx.staticFields })];
+    }),
+  )
+  .concat(
+    // tslint:disable-next-line: readonly-array
+    _.range(OpCodeToByteCode.LDLOC0, OpCodeToByteCode.LDLOC6).map<[number, OpObject]>((idx) => {
+      const value = idx - OpCodeToByteCode.LDLOC0 - 1;
+
+      return [
+        idx,
+        loadFromSlot({ name: `LDLOC${value}` as OpCode, index: value, getSlot: (ctx) => ctx.localVariables }),
+      ];
+    }),
+  )
+  .concat(
+    // tslint:disable-next-line: readonly-array
+    _.range(OpCodeToByteCode.STLOC0, OpCodeToByteCode.STLOC6).map<[number, OpObject]>((idx) => {
+      const value = idx - OpCodeToByteCode.STLOC0 - 1;
+
+      return [
+        idx,
+        storeToSlot({ name: `STLOC${value}` as OpCode, index: value, getSlot: (ctx) => ctx.localVariables }),
+      ];
+    }),
+  )
+  .concat(
+    // tslint:disable-next-line: readonly-array
+    _.range(OpCodeToByteCode.LDARG0, OpCodeToByteCode.LDARG6).map<[number, OpObject]>((idx) => {
+      const value = idx - OpCodeToByteCode.LDARG0 - 1;
+
+      return [idx, loadFromSlot({ name: `LDARG${value}` as OpCode, index: value, getSlot: (ctx) => ctx.arguments })];
+    }),
+  )
+  .concat(
+    // tslint:disable-next-line: readonly-array
+    _.range(OpCodeToByteCode.STARG0, OpCodeToByteCode.STARG6).map<[number, OpObject]>((idx) => {
+      const value = idx - OpCodeToByteCode.STARG0 - 1;
+
+      return [idx, storeToSlot({ name: `STARG${value}` as OpCode, index: value, getSlot: (ctx) => ctx.arguments })];
+    }),
+  )
+  .concat(
+    // tslint:disable-next-line: readonly-array
+    _.range(OpCodeToByteCode.PUSH0, OpCodeToByteCode.PUSH16).map<[number, OpObject]>((idx) => {
+      const value = idx - OpCodeToByteCode.PUSH0 - 1;
+
+      return [idx, pushNumber({ name: `PUSH${value}` as OpCode, value })];
     }),
   )
   .concat([
+    [OpCodeToByteCode.LDSFLD, loadFromSlot({ name: 'LDSFLD', getSlot: (ctx) => ctx.staticFields })],
+    [OpCodeToByteCode.LDLOC, loadFromSlot({ name: 'LDLOC', getSlot: (ctx) => ctx.localVariables })],
+    [OpCodeToByteCode.LDARG, loadFromSlot({ name: 'LDARG', getSlot: (ctx) => ctx.arguments })],
+    [OpCodeToByteCode.STSFLD, storeToSlot({ name: 'STSFLD', getSlot: (ctx) => ctx.staticFields })],
+    [OpCodeToByteCode.STLOC, storeToSlot({ name: 'STLOC', getSlot: (ctx) => ctx.localVariables })],
+    [OpCodeToByteCode.STARG, storeToSlot({ name: 'STARG', getSlot: (ctx) => ctx.arguments })],
+  ])
+  .concat([
+    [
+      OpCodeToByteCode.PUSHA,
+      createOp({
+        name: 'PUSHA',
+        out: 1,
+        invoke: ({ context }) => {
+          const { pc } = context;
+          const position = pc + context.code.readInt32LE(pc);
+          if (position < 0 || position > context.code.length) {
+            throw new Error(`Bad pointer address: ${position}`);
+          }
+
+          return {
+            context: { ...context, pc: pc + 4 },
+            results: [new PointerStackItem({ script: new Script(context.code), position })],
+          };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.PUSHNULL,
+      createOp({
+        name: 'PUSHNULL',
+        out: 1,
+        invoke: ({ context }) => ({ context, results: [new NullStackItem()] }),
+      }),
+    ],
     [
       OpCodeToByteCode.NOP,
       createOp({
@@ -569,8 +775,119 @@ const OPCODE_PAIRS = (
       }),
     ],
     [OpCodeToByteCode.JMP, JMP],
-    [OpCodeToByteCode.JMPIF, jump({ name: 'JMPIF', checkTrue: true })],
-    [OpCodeToByteCode.JMPIFNOT, jump({ name: 'JMPIFNOT', checkTrue: false })],
+    [OpCodeToByteCode.JMP_L, jump({ name: 'JMP_L', long: true })],
+    [OpCodeToByteCode.JMPIF, jump({ name: 'JMPIF', long: false, checkTrue: true })],
+    [OpCodeToByteCode.JMPIF_L, jump({ name: 'JMPIF_L', long: true, checkTrue: true })],
+    [OpCodeToByteCode.JMPIFNOT, jump({ name: 'JMPIFNOT', long: false, checkTrue: false })],
+    [OpCodeToByteCode.JMPIFNOT_L, jump({ name: 'JMPIFNOT_L', long: true, checkTrue: false })],
+    [
+      OpCodeToByteCode.JMPEQ,
+      jump({
+        name: 'JMPEQ',
+        long: false,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[0].getInteger().eq(argsIn[1].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPEQ_L,
+      jump({
+        name: 'JMPEQ_L',
+        long: true,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[0].getInteger().eq(argsIn[1].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPNE,
+      jump({
+        name: 'JMPNE',
+        long: false,
+        checkTrue: false,
+        jmpCheck: (argsIn) => !argsIn[0].getInteger().eq(argsIn[1].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPNE_L,
+      jump({
+        name: 'JMPNE_L',
+        long: true,
+        checkTrue: false,
+        jmpCheck: (argsIn) => !argsIn[0].getInteger().eq(argsIn[1].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPGT,
+      jump({
+        name: 'JMPGT',
+        long: false,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[1].getInteger().gt(argsIn[0].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPGT_L,
+      jump({
+        name: 'JMPGT_L',
+        long: true,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[1].getInteger().gt(argsIn[0].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPGE,
+      jump({
+        name: 'JMPGE',
+        long: false,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[1].getInteger().gte(argsIn[0].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPGE_L,
+      jump({
+        name: 'JMPGE_L',
+        long: true,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[1].getInteger().gte(argsIn[0].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPLT,
+      jump({
+        name: 'JMPLT',
+        long: false,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[1].getInteger().lt(argsIn[0].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPLT_L,
+      jump({
+        name: 'JMPLT_L',
+        long: true,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[1].getInteger().lt(argsIn[0].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPLE,
+      jump({
+        name: 'JMPLE',
+        long: false,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[1].getInteger().lte(argsIn[0].getInteger()),
+      }),
+    ],
+    [
+      OpCodeToByteCode.JMPLE_L,
+      jump({
+        name: 'JMPLE_L',
+        long: true,
+        checkTrue: true,
+        jmpCheck: (argsIn) => argsIn[1].getInteger().lte(argsIn[0].getInteger()),
+      }),
+    ],
     [
       OpCodeToByteCode.CALL,
       createOp({
@@ -589,7 +906,7 @@ const OPCODE_PAIRS = (
               callingScriptHash: context.scriptHash,
             },
             args: [],
-            argsAlt: [],
+            argsTry: [],
           });
 
           const resultContext = await context.engine.run({
@@ -631,9 +948,9 @@ const OPCODE_PAIRS = (
             op: {
               name: 'SYSCALL',
               in: sysCall.in,
-              inAlt: sysCall.inAlt,
+              inTry: sysCall.inTry,
               out: sysCall.out,
-              outAlt: sysCall.outAlt,
+              outTry: sysCall.outTry,
               invocation: sysCall.invocation,
               fee: sysCall.fee,
               invoke: sysCall.invoke,
@@ -649,7 +966,7 @@ const OPCODE_PAIRS = (
         name: 'XDROP',
         in: 1,
         invoke: ({ context, args }) => {
-          const n = vmUtils.toNumber(context, args[0].asBigIntegerUnsafe());
+          const n = vmUtils.toNumber(context, args[0].getBigIntegerUnsafe());
           if (n < 0) {
             throw new XDropNegativeError(context);
           }
@@ -668,6 +985,17 @@ const OPCODE_PAIRS = (
             },
           };
         },
+      }),
+    ],
+    [
+      OpCodeToByteCode.CLEAR,
+      createOp({
+        name: 'CLEAR',
+        out: 0,
+        invoke: ({ context }) => ({
+          context,
+          results: [],
+        }),
       }),
     ],
     [
@@ -732,7 +1060,7 @@ const OPCODE_PAIRS = (
         in: 1,
         out: 1,
         invoke: ({ context, args }) => {
-          const n = vmUtils.toNumber(context, args[0].asBigIntegerUnsafe());
+          const n = vmUtils.toNumber(context, args[0].getBigIntegerUnsafe());
           if (n < 0) {
             throw new PickNegativeError(context);
           }
@@ -751,7 +1079,7 @@ const OPCODE_PAIRS = (
         in: 1,
         out: 1,
         invoke: ({ context, args }) => {
-          const n = vmUtils.toNumber(context, args[0].asBigIntegerUnsafe());
+          const n = vmUtils.toNumber(context, args[0].getBigIntegerUnsafe());
           if (n < 0) {
             throw new RollNegativeError(context);
           }
@@ -815,7 +1143,7 @@ const OPCODE_PAIRS = (
         in: 2,
         out: 1,
         invoke: ({ context, args }) => {
-          const result = Buffer.concat([args[1].asBuffer(), args[0].asBuffer()]);
+          const result = Buffer.concat([args[1].getBuffer(), args[0].getBuffer()]);
           if (result.length > MAX_ITEM_SIZE) {
             throw new ItemTooLargeError(context);
           }
@@ -828,25 +1156,129 @@ const OPCODE_PAIRS = (
       }),
     ],
     [
+      OpCodeToByteCode.REVERSE3,
+      createOp({
+        name: 'REVERSE3',
+        in: 3,
+        out: 3,
+        invoke: ({ context, args }) => ({
+          context,
+          results: [args[2], args[1], args[0]],
+        }),
+      }),
+    ],
+    [
+      OpCodeToByteCode.REVERSE4,
+      createOp({
+        name: 'REVERSE4',
+        in: 4,
+        out: 4,
+        invoke: ({ context, args }) => ({
+          context,
+          results: [args[3], args[2], args[1], args[0]],
+        }),
+      }),
+    ],
+    [
+      OpCodeToByteCode.REVERSEN,
+      {
+        type: 'create',
+        create: ({ context: contextIn }) => {
+          const { stack } = contextIn;
+          const num = stack[0].getInteger().toNumber();
+
+          if (num < 0 || num > stack.length) {
+            throw new Error('Argument out of range');
+          }
+
+          const { op } = createOp({
+            name: 'REVERSEN',
+            in: num + 1,
+            out: num,
+            invoke: ({ context, args }) => ({ context, results: args.slice(1, num).reverse() }),
+          });
+
+          return { op, context: contextIn };
+        },
+      },
+    ],
+    [
+      OpCodeToByteCode.INITSLOT,
+      createOp({
+        name: 'INITSLOT',
+        invoke: ({ context, args }) => {
+          if (context.localVariables !== undefined || context.arguments !== undefined) {
+            throw new Error('INITSLOT cannot be executed twice.');
+          }
+          const { pc, code } = context;
+          const firstCheck = code.readUInt16LE(pc);
+          if (firstCheck === 0) {
+            throw new Error();
+          }
+          const localVariablesCount = code.readUInt8(pc);
+          let newLocalVariables: StackItem[] | undefined = context.localVariables;
+          if (localVariablesCount > 0) {
+            // tslint:disable-next-line: prefer-array-literal
+            newLocalVariables = new Array(localVariablesCount);
+          }
+          const argumentsCount = code.readUInt8(pc + 1);
+          let newArguments: StackItem[] | undefined = context.arguments;
+          if (argumentsCount > 0) {
+            newArguments = [];
+            // tslint:disable-next-line: no-loop-statement
+            for (let i = 0; i < argumentsCount; i += 1) {
+              // tslint:disable-next-line: no-array-mutation
+              newArguments.push(args[i]);
+            }
+          }
+
+          return {
+            context: { ...context, localVariables: newLocalVariables, arguments: newArguments, pc: pc + 2 },
+          };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.INITSSLOT,
+      createOp({
+        name: 'INITSSLOT',
+        invoke: ({ context }) => {
+          if (context.staticFields !== undefined) {
+            throw new Error('INITSSLOT cannot be executed twice.');
+          }
+          const { pc } = context;
+          const num = context.code.readUInt8(pc);
+          if (num === 0) {
+            throw new Error('The operand is invalid');
+          }
+
+          return {
+            // tslint:disable-next-line: prefer-array-literal
+            context: { ...context, pc: pc + 1, staticFields: new Array(num) },
+          };
+        },
+      }),
+    ],
+    [
       OpCodeToByteCode.SUBSTR,
       createOp({
         name: 'SUBSTR',
         in: 3,
         out: 1,
         invoke: ({ context, args }) => {
-          const end = vmUtils.toNumber(context, args[0].asBigIntegerUnsafe());
+          const end = vmUtils.toNumber(context, args[0].getBigIntegerUnsafe());
           if (end < 0) {
             throw new SubstrNegativeEndError(context);
           }
 
-          const start = vmUtils.toNumber(context, args[1].asBigIntegerUnsafe());
+          const start = vmUtils.toNumber(context, args[1].getBigIntegerUnsafe());
           if (start < 0) {
             throw new SubstrNegativeStartError(context);
           }
 
           return {
             context,
-            results: [new BufferStackItem(args[2].asBuffer().slice(start, start + end))],
+            results: [new BufferStackItem(args[2].getBuffer().slice(start, start + end))],
           };
         },
       }),
@@ -858,14 +1290,14 @@ const OPCODE_PAIRS = (
         in: 2,
         out: 1,
         invoke: ({ context, args }) => {
-          const count = vmUtils.toNumber(context, args[0].asBigIntegerUnsafe());
+          const count = vmUtils.toNumber(context, args[0].getBigIntegerUnsafe());
           if (count < 0) {
             throw new LeftNegativeError(context);
           }
 
           return {
             context,
-            results: [new BufferStackItem(args[1].asBuffer().slice(0, count))],
+            results: [new BufferStackItem(args[1].getBuffer().slice(0, count))],
           };
         },
       }),
@@ -877,12 +1309,12 @@ const OPCODE_PAIRS = (
         in: 2,
         out: 1,
         invoke: ({ context, args }) => {
-          const count = vmUtils.toNumber(context, args[0].asBigIntegerUnsafe());
+          const count = vmUtils.toNumber(context, args[0].getBigIntegerUnsafe());
           if (count < 0) {
             throw new RightNegativeError(context);
           }
 
-          const value = args[1].asBuffer();
+          const value = args[1].getBuffer();
           if (value.length < count) {
             throw new RightLengthError(context);
           }
@@ -902,7 +1334,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new IntegerStackItem(new BN(args[0].asBuffer().length))],
+          results: [new IntegerStackItem(new BN(args[0].size))],
         }),
       }),
     ],
@@ -916,7 +1348,7 @@ const OPCODE_PAIRS = (
           context,
           results: [
             new IntegerStackItem(
-              utils.fromSignedBuffer(bitwise.buffer.not(utils.toSignedBuffer(args[0].asBigIntegerUnsafe()))),
+              utils.fromSignedBuffer(bitwise.buffer.not(utils.toSignedBuffer(args[0].getBigIntegerUnsafe()))),
             ),
           ],
         }),
@@ -932,7 +1364,7 @@ const OPCODE_PAIRS = (
           context,
           results: [
             new IntegerStackItem(
-              vmUtils.bitwiseOp(bitwise.buffer.and, args[0].asBigIntegerUnsafe(), args[1].asBigIntegerUnsafe()),
+              vmUtils.bitwiseOp(bitwise.buffer.and, args[0].getBigIntegerUnsafe(), args[1].getBigIntegerUnsafe()),
             ),
           ],
         }),
@@ -948,7 +1380,7 @@ const OPCODE_PAIRS = (
           context,
           results: [
             new IntegerStackItem(
-              vmUtils.bitwiseOp(bitwise.buffer.or, args[0].asBigIntegerUnsafe(), args[1].asBigIntegerUnsafe()),
+              vmUtils.bitwiseOp(bitwise.buffer.or, args[0].getBigIntegerUnsafe(), args[1].getBigIntegerUnsafe()),
             ),
           ],
         }),
@@ -964,7 +1396,7 @@ const OPCODE_PAIRS = (
           context,
           results: [
             new IntegerStackItem(
-              vmUtils.bitwiseOp(bitwise.buffer.xor, args[0].asBigIntegerUnsafe(), args[1].asBigIntegerUnsafe()),
+              vmUtils.bitwiseOp(bitwise.buffer.xor, args[0].getBigIntegerUnsafe(), args[1].getBigIntegerUnsafe()),
             ),
           ],
         }),
@@ -982,18 +1414,18 @@ const OPCODE_PAIRS = (
         }),
       }),
     ],
-    // [0x88, createOp({
-    //   name: 'OP_EQUALVERIFY',
-    //   invoke: ({ context }: OpInvokeArgs) => ({ context }),
-    // })],
-    // [0x89, createOp({
-    //   name: 'OP_RESERVED1',
-    //   invoke: ({ context }: OpInvokeArgs) => ({ context }),
-    // })],
-    // [0x8A, createOp({
-    //   name: 'OP_RESERVED2',
-    //   invoke: ({ context }: OpInvokeArgs) => ({ context }),
-    // })],
+    [
+      OpCodeToByteCode.NOTEQUAL,
+      createOp({
+        name: 'NOTEQUAL',
+        in: 2,
+        out: 1,
+        invoke: ({ context, args }) => ({
+          context,
+          results: [new BooleanStackItem(!args[0].equals(args[1]))],
+        }),
+      }),
+    ],
     [
       OpCodeToByteCode.INC,
       createOp({
@@ -1002,7 +1434,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new IntegerStackItem(args[0].asBigInteger(context.blockchain.currentBlockIndex).add(utils.ONE))],
+          results: [new IntegerStackItem(args[0].getInteger().add(utils.ONE))],
         }),
       }),
     ],
@@ -1014,7 +1446,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new IntegerStackItem(args[0].asBigInteger(context.blockchain.currentBlockIndex).sub(utils.ONE))],
+          results: [new IntegerStackItem(args[0].getInteger().sub(utils.ONE))],
         }),
       }),
     ],
@@ -1025,7 +1457,7 @@ const OPCODE_PAIRS = (
         in: 1,
         out: 1,
         invoke: ({ context, args }) => {
-          const value = args[0].asBigIntegerUnsafe();
+          const value = args[0].getBigIntegerUnsafe();
           const mutableResults = [];
           if (value.isZero()) {
             mutableResults.push(new IntegerStackItem(utils.ZERO));
@@ -1047,7 +1479,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new IntegerStackItem(args[0].asBigIntegerUnsafe().neg())],
+          results: [new IntegerStackItem(args[0].getBigIntegerUnsafe().neg())],
         }),
       }),
     ],
@@ -1059,7 +1491,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new IntegerStackItem(args[0].asBigIntegerUnsafe().abs())],
+          results: [new IntegerStackItem(args[0].getBigIntegerUnsafe().abs())],
         }),
       }),
     ],
@@ -1071,7 +1503,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(!args[0].asBoolean())],
+          results: [new BooleanStackItem(!args[0].getBoolean())],
         }),
       }),
     ],
@@ -1083,7 +1515,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(!args[0].asBigIntegerUnsafe().isZero())],
+          results: [new BooleanStackItem(!args[0].getBigIntegerUnsafe().isZero())],
         }),
       }),
     ],
@@ -1095,13 +1527,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [
-            new IntegerStackItem(
-              args[1]
-                .asBigInteger(context.blockchain.currentBlockIndex)
-                .add(args[0].asBigInteger(context.blockchain.currentBlockIndex)),
-            ),
-          ],
+          results: [new IntegerStackItem(args[1].getInteger().add(args[0].getInteger()))],
         }),
       }),
     ],
@@ -1113,13 +1539,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [
-            new IntegerStackItem(
-              args[1]
-                .asBigInteger(context.blockchain.currentBlockIndex)
-                .sub(args[0].asBigInteger(context.blockchain.currentBlockIndex)),
-            ),
-          ],
+          results: [new IntegerStackItem(args[1].getInteger().sub(args[0].getInteger()))],
         }),
       }),
     ],
@@ -1131,13 +1551,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [
-            new IntegerStackItem(
-              args[1]
-                .asBigInteger(context.blockchain.currentBlockIndex)
-                .mul(args[0].asBigInteger(context.blockchain.currentBlockIndex)),
-            ),
-          ],
+          results: [new IntegerStackItem(args[1].getInteger().mul(args[0].getInteger()))],
         }),
       }),
     ],
@@ -1149,13 +1563,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [
-            new IntegerStackItem(
-              args[1]
-                .asBigInteger(context.blockchain.currentBlockIndex)
-                .div(args[0].asBigInteger(context.blockchain.currentBlockIndex)),
-            ),
-          ],
+          results: [new IntegerStackItem(args[1].getInteger().div(args[0].getInteger()))],
         }),
       }),
     ],
@@ -1167,13 +1575,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [
-            new IntegerStackItem(
-              args[1]
-                .asBigInteger(context.blockchain.currentBlockIndex)
-                .mod(args[0].asBigInteger(context.blockchain.currentBlockIndex)),
-            ),
-          ],
+          results: [new IntegerStackItem(args[1].getInteger().mod(args[0].getInteger()))],
         }),
       }),
     ],
@@ -1184,12 +1586,12 @@ const OPCODE_PAIRS = (
         in: 2,
         out: 1,
         invoke: ({ context, args }) => {
-          const shift = args[0].asBigIntegerUnsafe();
+          const shift = args[0].getBigIntegerUnsafe();
           if (shift.toNumber() > MAX_SHL_SHR || shift.toNumber() < MIN_SHL_SHR) {
             throw new ShiftTooLargeError(context);
           }
 
-          const value = args[1].asBigIntegerUnsafe();
+          const value = args[1].getBigIntegerUnsafe();
           const result = new IntegerStackItem(vmUtils.shiftLeft(value, shift));
 
           return {
@@ -1200,18 +1602,47 @@ const OPCODE_PAIRS = (
       }),
     ],
     [
+      OpCodeToByteCode.POW,
+      createOp({
+        name: 'POW',
+        in: 2,
+        out: 1,
+        invoke: ({ context, args }) => {
+          const exp = args[0].getInteger();
+          const val = args[1].getInteger();
+
+          return {
+            context,
+            results: [new IntegerStackItem(val.pow(exp))],
+          };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.SQRT,
+      createOp({
+        name: 'SQRT',
+        in: 1,
+        out: 1,
+        invoke: ({ context, args }) => ({
+          context,
+          results: [new IntegerStackItem(args[0].getInteger().sqr())],
+        }),
+      }),
+    ],
+    [
       OpCodeToByteCode.SHR,
       createOp({
         name: 'SHR',
         in: 2,
         out: 1,
         invoke: ({ context, args }) => {
-          const shift = args[0].asBigIntegerUnsafe();
+          const shift = args[0].getBigIntegerUnsafe();
           if (shift.toNumber() > MAX_SHL_SHR || shift.toNumber() < MIN_SHL_SHR) {
             throw new ShiftTooLargeError(context);
           }
 
-          const value = args[1].asBigIntegerUnsafe();
+          const value = args[1].getBigIntegerUnsafe();
           const result = new IntegerStackItem(vmUtils.shiftRight(value, shift));
 
           return {
@@ -1229,7 +1660,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(args[0].asBoolean() && args[1].asBoolean())],
+          results: [new BooleanStackItem(args[0].getBoolean() && args[1].getBoolean())],
         }),
       }),
     ],
@@ -1241,7 +1672,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(args[0].asBoolean() || args[1].asBoolean())],
+          results: [new BooleanStackItem(args[0].getBoolean() || args[1].getBoolean())],
         }),
       }),
     ],
@@ -1253,7 +1684,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(args[0].asBigIntegerUnsafe().eq(args[1].asBigIntegerUnsafe()))],
+          results: [new BooleanStackItem(args[0].getBigIntegerUnsafe().eq(args[1].getBigIntegerUnsafe()))],
         }),
       }),
     ],
@@ -1265,7 +1696,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(!args[0].asBigIntegerUnsafe().eq(args[1].asBigIntegerUnsafe()))],
+          results: [new BooleanStackItem(!args[0].getBigIntegerUnsafe().eq(args[1].getBigIntegerUnsafe()))],
         }),
       }),
     ],
@@ -1277,7 +1708,13 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(args[1].asBigIntegerUnsafe().lt(args[0].asBigIntegerUnsafe()))],
+          results: [
+            new BooleanStackItem(
+              args[1].isNull || args[0].isNull
+                ? false
+                : args[1].getBigIntegerUnsafe().lt(args[0].getBigIntegerUnsafe()),
+            ),
+          ],
         }),
       }),
     ],
@@ -1289,7 +1726,13 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(args[1].asBigIntegerUnsafe().gt(args[0].asBigIntegerUnsafe()))],
+          results: [
+            new BooleanStackItem(
+              args[1].isNull || args[0].isNull
+                ? false
+                : args[1].getBigIntegerUnsafe().gt(args[0].getBigIntegerUnsafe()),
+            ),
+          ],
         }),
       }),
     ],
@@ -1301,7 +1744,13 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(args[1].asBigIntegerUnsafe().lte(args[0].asBigIntegerUnsafe()))],
+          results: [
+            new BooleanStackItem(
+              args[1].isNull || args[0].isNull
+                ? false
+                : args[1].getBigIntegerUnsafe().lte(args[0].getBigIntegerUnsafe()),
+            ),
+          ],
         }),
       }),
     ],
@@ -1313,7 +1762,13 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new BooleanStackItem(args[1].asBigIntegerUnsafe().gte(args[0].asBigIntegerUnsafe()))],
+          results: [
+            new BooleanStackItem(
+              args[1].isNull || args[0].isNull
+                ? false
+                : args[1].getBigIntegerUnsafe().gte(args[0].getBigIntegerUnsafe()),
+            ),
+          ],
         }),
       }),
     ],
@@ -1325,7 +1780,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new IntegerStackItem(BN.min(args[1].asBigIntegerUnsafe(), args[0].asBigIntegerUnsafe()))],
+          results: [new IntegerStackItem(BN.min(args[1].getBigIntegerUnsafe(), args[0].getBigIntegerUnsafe()))],
         }),
       }),
     ],
@@ -1337,7 +1792,7 @@ const OPCODE_PAIRS = (
         out: 1,
         invoke: ({ context, args }) => ({
           context,
-          results: [new IntegerStackItem(BN.max(args[1].asBigIntegerUnsafe(), args[0].asBigIntegerUnsafe()))],
+          results: [new IntegerStackItem(BN.max(args[1].getBigIntegerUnsafe(), args[0].getBigIntegerUnsafe()))],
         }),
       }),
     ],
@@ -1351,115 +1806,10 @@ const OPCODE_PAIRS = (
           context,
           results: [
             new BooleanStackItem(
-              args[1].asBigIntegerUnsafe().lte(args[2].asBigIntegerUnsafe()) &&
-                args[2].asBigIntegerUnsafe().lt(args[0].asBigIntegerUnsafe()),
+              args[1].getBigIntegerUnsafe().lte(args[2].getBigIntegerUnsafe()) &&
+                args[2].getBigIntegerUnsafe().lt(args[0].getBigIntegerUnsafe()),
             ),
           ],
-        }),
-      }),
-    ],
-    [
-      0xae,
-      {
-        type: 'create',
-        create: ({ context: contextIn }) => {
-          const { stack } = contextIn;
-          const top = stack[0] as StackItem | undefined;
-          let pubKeyCount = 0;
-          let _in;
-          if (top === undefined || top.isArray()) {
-            if (top !== undefined) {
-              pubKeyCount = top.asArray().length;
-            }
-            _in = 1;
-          } else {
-            pubKeyCount = vmUtils.toNumber(contextIn, top.asBigIntegerUnsafe());
-            if (pubKeyCount <= 0) {
-              throw new InvalidCheckMultisigArgumentsError(contextIn);
-            }
-            _in = pubKeyCount + 1;
-          }
-
-          const next = stack[_in] as StackItem | undefined;
-          if (next === undefined || next.isArray()) {
-            _in += 1;
-          } else {
-            const sigCount = vmUtils.toNumber(contextIn, next.asBigIntegerUnsafe());
-            if (sigCount < 0) {
-              throw new InvalidCheckMultisigArgumentsError(contextIn);
-            }
-            _in += sigCount + 1;
-          }
-
-          const { op } = createOp({
-            name: 'CHECKMULTISIG',
-            in: _in,
-            out: 1,
-            fee: pubKeyCount === 0 ? FEES.ONE : FEES.ONE_HUNDRED.mul(new BN(pubKeyCount)),
-            invoke: ({ context, args }) => {
-              let index;
-              let publicKeys;
-              if (args[0].isArray()) {
-                index = 1;
-                publicKeys = args[0].asArray().map((value) => value.asECPoint());
-              } else {
-                const count = vmUtils.toNumber(context, args[0].asBigIntegerUnsafe());
-                index = count + 1;
-                publicKeys = args.slice(1, index).map((value) => value.asECPoint());
-              }
-
-              const signatures = args[index].isArray()
-                ? args[index].asArray().map((value) => value.asBuffer())
-                : args.slice(index + 1).map((value) => value.asBuffer());
-
-              if (publicKeys.length === 0 || signatures.length === 0 || signatures.length > publicKeys.length) {
-                throw new InvalidCheckMultisigArgumentsError(context);
-              }
-
-              let result = true;
-              const n = publicKeys.length;
-              const m = signatures.length;
-              try {
-                // tslint:disable-next-line no-loop-statement
-                for (let i = 0, j = 0; result && i < m && j < n; ) {
-                  const currentResult = crypto.verify({
-                    message: context.init.scriptContainer.value.message,
-                    signature: signatures[i],
-                    publicKey: publicKeys[j],
-                  });
-
-                  if (currentResult) {
-                    i += 1;
-                  }
-                  j += 1;
-                  if (m - i > n - j) {
-                    result = false;
-                  }
-                }
-              } catch {
-                result = false;
-              }
-
-              return {
-                context,
-                results: [new BooleanStackItem(result)],
-              };
-            },
-          });
-
-          return { op, context: contextIn };
-        },
-      },
-    ],
-    [
-      OpCodeToByteCode.SIZE,
-      createOp({
-        name: 'SIZE',
-        in: 1,
-        out: 1,
-        invoke: ({ context, args }) => ({
-          context,
-          results: [new IntegerStackItem(new BN(args[0].size))],
         }),
       }),
     ],
@@ -1475,7 +1825,7 @@ const OPCODE_PAIRS = (
             // This will cause the op to throw once it's executed.
             _in = 1;
           } else {
-            _in = vmUtils.toNumber(contextIn, top.asBigIntegerUnsafe()) + 1;
+            _in = vmUtils.toNumber(contextIn, top.getBigIntegerUnsafe()) + 1;
 
             if (_in < 0) {
               throw new InvalidPackCountError(contextIn);
@@ -1507,13 +1857,13 @@ const OPCODE_PAIRS = (
         create: ({ context: contextIn }) => {
           const { stack } = contextIn;
           const top = stack[0] as StackItem | undefined;
-          const out = top === undefined ? 1 : top.asArray().length + 1;
+          const out = top === undefined ? 1 : top.getArray().length + 1;
           const { op } = createOp({
             name: 'UNPACK',
             in: 1,
             out,
             invoke: ({ context, args }) => {
-              const arr = args[0].asArray();
+              const arr = args[0].getArray();
               const mutableResults = [];
               // tslint:disable-next-line no-loop-statement
               for (let i = arr.length - 1; i >= 0; i -= 1) {
@@ -1536,10 +1886,10 @@ const OPCODE_PAIRS = (
         in: 2,
         out: 1,
         invoke: ({ context, args }) => {
-          const key = args[0];
+          const key = assertPrimitiveStackItem(args[0]);
           if (args[1].isArray()) {
-            const index = vmUtils.toNumber(context, key.asBigIntegerUnsafe());
-            const val = args[1].asArray();
+            const index = vmUtils.toNumber(context, key.getBigIntegerUnsafe());
+            const val = args[1].getArray();
             if (index < 0 || index >= val.length) {
               throw new InvalidPickItemKeyError(context, `${index}`, JSON.stringify(args[1].convertJSON()));
             }
@@ -1552,7 +1902,7 @@ const OPCODE_PAIRS = (
             };
           }
 
-          const value = args[1].asMapStackItem();
+          const value = assertMapStackItem(args[1]);
           if (!value.has(key)) {
             throw new InvalidPickItemKeyError(context, key.toStructuralKey(), JSON.stringify(args[1].convertJSON()));
           }
@@ -1573,13 +1923,13 @@ const OPCODE_PAIRS = (
         in: 3,
         invoke: ({ context, args }) => {
           let newItem = args[0];
-          const key = args[1];
+          const key = assertPrimitiveStackItem(args[1]);
           if (newItem instanceof StructStackItem) {
             newItem = newItem.clone();
           }
           if (args[2].isArray()) {
-            const index = vmUtils.toNumber(context, key.asBigIntegerUnsafe());
-            const mutableValue = args[2].asArray();
+            const index = vmUtils.toNumber(context, key.getBigIntegerUnsafe());
+            const mutableValue = args[2].getArray();
             if (index < 0 || index >= mutableValue.length) {
               throw new InvalidSetItemIndexError(context);
             }
@@ -1598,7 +1948,7 @@ const OPCODE_PAIRS = (
             };
           }
 
-          const value = args[2].asMapStackItem();
+          const value = assertMapStackItem(args[2]);
           const existingValue = value.has(key) ? value.get(key) : undefined;
           value.set(key, newItem);
 
@@ -1646,13 +1996,96 @@ const OPCODE_PAIRS = (
     [OpCodeToByteCode.NEWARRAY, newArrayOrStruct({ name: 'NEWARRAY' })],
     [OpCodeToByteCode.NEWSTRUCT, newArrayOrStruct({ name: 'NEWSTRUCT' })],
     [
+      OpCodeToByteCode.NEWARRAY_T,
+      createOp({
+        name: 'NEWARRAY_T',
+        in: 1,
+        out: 1,
+        invoke: ({ context, args }) => {
+          const { pc, code } = context;
+          const num = args[0].getInteger().toNumber();
+          if (num < 0 || num > MAX_STACK_SIZE) {
+            throw new InvalidStackItemError();
+          }
+
+          let item: StackItem = new NullStackItem();
+
+          const type = assertStackItemType(code.readUInt8(pc));
+          switch (type) {
+            case StackItemType.Boolean:
+              item = new BooleanStackItem(false);
+              break;
+            case StackItemType.Integer:
+              item = new IntegerStackItem(new BN(0));
+              break;
+            case StackItemType.ByteString:
+              item = new ByteStringStackItem(Buffer.from([]));
+              break;
+            default:
+              item = new NullStackItem();
+          }
+
+          return { context: { ...context, pc: pc + 1 }, results: [item] };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.NEWBUFFER,
+      createOp({
+        name: 'NEWBUFFER',
+        in: 1,
+        out: 1,
+        invoke: ({ context, args }) => {
+          const length = args[0].getInteger().toNumber();
+          if (length > MAX_ITEM_SIZE) {
+            throw new Error('Max');
+          }
+
+          return { context, results: [new BufferStackItem(Buffer.alloc(length))] };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.MEMCPY,
+      createOp({
+        name: 'MEMCPY',
+        in: 5,
+        invoke: ({ context, args }) => {
+          const count = args[0].getInteger().toNumber();
+          if (count < 0) {
+            throw new Error();
+          }
+          const startIndex = args[1].getInteger().toNumber();
+          if (startIndex < 0) {
+            throw new Error();
+          }
+          const source = args[2].getBuffer();
+          if (startIndex + count > source.length) {
+            throw new Error();
+          }
+          const destinationIndex = args[3].getInteger().toNumber();
+          if (destinationIndex < 0) {
+            throw new Error();
+          }
+          const destination = assertBufferStackItem(args[4]);
+          if (destinationIndex + count > destination.size) {
+            throw new Error();
+          }
+
+          destination.copy({ source, startIndex, destinationIndex, count });
+
+          return { context };
+        },
+      }),
+    ],
+    [
       OpCodeToByteCode.NEWMAP,
       createOp({
         name: 'NEWMAP',
         out: 1,
         invoke: ({ context }) => ({
           context,
-          results: [new MapStackItem()],
+          results: [new MapStackItem(new Map())],
         }),
       }),
     ],
@@ -1666,7 +2099,7 @@ const OPCODE_PAIRS = (
           if (newItem instanceof StructStackItem) {
             newItem = newItem.clone();
           }
-          const mutableValue = args[1].asArray();
+          const mutableValue = args[1].getArray();
           mutableValue.push(newItem);
 
           if (mutableValue.length > MAX_ARRAY_SIZE) {
@@ -1683,12 +2116,38 @@ const OPCODE_PAIRS = (
       }),
     ],
     [
+      OpCodeToByteCode.CLEARITEMS,
+      createOp({
+        name: 'CLEARITEMS',
+        in: 1,
+        invoke: ({ context, args }) => {
+          const item = assertCompoundStackItem(args[0]);
+          item.clear();
+
+          return { context };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.POPITEM,
+      createOp({
+        name: 'POPITEM',
+        in: 1,
+        out: 1,
+        invoke: ({ context, args }) => {
+          const array = assertArrayStackItem(args[0]);
+
+          return { context, results: [array.pop()] };
+        },
+      }),
+    ],
+    [
       OpCodeToByteCode.REVERSEITEMS,
       createOp({
         name: 'REVERSEITEMS',
         in: 1,
         invoke: ({ context, args }) => {
-          const mutableValue = args[0].asArray();
+          const mutableValue = args[0].getArray();
           mutableValue.reverse();
 
           return { context };
@@ -1701,10 +2160,10 @@ const OPCODE_PAIRS = (
         name: 'REMOVE',
         in: 2,
         invoke: ({ context, args }) => {
-          const key = args[0];
+          const key = assertPrimitiveStackItem(args[0]);
           if (args[1].isArray()) {
-            const index = vmUtils.toNumber(context, key.asBigIntegerUnsafe());
-            const mutableValue = args[1].asArray();
+            const index = vmUtils.toNumber(context, key.getBigIntegerUnsafe());
+            const mutableValue = args[1].getArray();
             if (index < 0 || index >= mutableValue.length) {
               throw new InvalidRemoveIndexError(context, index);
             }
@@ -1720,7 +2179,7 @@ const OPCODE_PAIRS = (
             };
           }
 
-          const value = args[1].asMapStackItem();
+          const value = assertMapStackItem(args[1]);
           if (value.has(key)) {
             const val = value.get(key);
             value.delete(key);
@@ -1749,10 +2208,10 @@ const OPCODE_PAIRS = (
         in: 2,
         out: 1,
         invoke: ({ context, args }) => {
-          const key = args[0];
+          const key = assertPrimitiveStackItem(args[0]);
           if (args[1].isArray()) {
-            const index = vmUtils.toNumber(context, key.asBigIntegerUnsafe());
-            const val = args[1].asArray();
+            const index = vmUtils.toNumber(context, key.getBigIntegerUnsafe());
+            const val = args[1].getArray();
             if (index < 0) {
               throw new InvalidHasKeyIndexError(context);
             }
@@ -1763,7 +2222,7 @@ const OPCODE_PAIRS = (
             };
           }
 
-          const value = args[1].asMapStackItem();
+          const value = assertMapStackItem(args[1]);
 
           return {
             context,
@@ -1779,7 +2238,7 @@ const OPCODE_PAIRS = (
         in: 1,
         out: 1,
         invoke: ({ context, args }) => {
-          const value = args[0].asMapStackItem();
+          const value = assertMapStackItem(args[0]);
 
           return { context, results: [value.keys()] };
         },
@@ -1792,7 +2251,7 @@ const OPCODE_PAIRS = (
         in: 1,
         out: 1,
         invoke: ({ context, args }) => {
-          const values = args[0].isArray() ? args[0].asArray() : args[0].asMapStackItem().valuesArray();
+          const values = args[0].isArray() ? args[0].getArray() : assertMapStackItem(args[0]).valuesArray();
 
           const newValues = values.map((value) => (value instanceof StructStackItem ? value.clone() : value));
 
@@ -1800,24 +2259,107 @@ const OPCODE_PAIRS = (
         },
       }),
     ],
-    [0xe0, functionCallIsolated({ name: 'CALL_I' })],
-    [0xe1, callIsolated({ name: 'CALL_E' })],
-    [0xe2, callIsolated({ name: 'CALL_ED', dynamicCall: true })],
-    [0xe3, callIsolated({ name: 'CALL_ET', tailCall: true })],
-    [0xe4, callIsolated({ name: 'CALL_EDT', tailCall: true, dynamicCall: true })],
     [
-      OpCodeToByteCode.THROW,
+      OpCodeToByteCode.ABORT,
       createOp({
-        name: 'THROW',
+        name: 'ABORT',
         invoke: ({ context }) => {
           throw new ThrowError(context);
         },
       }),
     ],
     [
+      OpCodeToByteCode.ASSERT,
+      createOp({
+        name: 'ASSERT',
+        in: 1,
+        invoke: ({ context, args }) => {
+          const item = args[0].getBoolean();
+
+          if (!item) {
+            throw new Error('ASSERT is executed with false result.');
+          }
+
+          return { context };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.THROW,
+      createOp({
+        name: 'THROW',
+        in: 1,
+        invoke: ({ context, args }) => {
+          const item = args[0];
+
+          return { context };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.TRY,
+      createOp({
+        name: 'TRY',
+        invoke: ({ context }) => {
+          const catchOffset = context.code.readInt8(context.pc);
+          const finallyOffset = context.code.readInt8(context.pc + 1);
+
+          return { context };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.TRY_L,
+      createOp({
+        name: 'TRY_L',
+        invoke: ({ context }) => {
+          const catchOffset = context.code.readInt32LE(context.pc);
+          const finallyOffset = context.code.readInt32LE(context.pc + 4);
+
+          return { context };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.ENDTRY,
+      createOp({
+        name: 'ENDTRY',
+        invoke: ({ context }) => {
+          const endOffset = context.code.readInt8(context.pc);
+
+          return { context };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.ENDTRY_L,
+      createOp({
+        name: 'ENDTRY_L',
+        invoke: ({ context }) => {
+          const endOffset = context.code.readInt32LE(context.pc);
+
+          return { context };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.ISNULL,
+      createOp({
+        name: 'ISNULL',
+        in: 1,
+        out: 1,
+        invoke: ({ context, args }) => ({
+          context,
+          results: [new BooleanStackItem(args[0].isNull)],
+        }),
+      }),
+    ],
+    [
       OpCodeToByteCode.ISTYPE,
       createOp({
         name: 'ISTYPE',
+        in: 1,
+        out: 1,
         invoke: ({ context, args }) => {
           const item = args[0];
           const { code, pc } = context;
@@ -1826,7 +2368,22 @@ const OPCODE_PAIRS = (
             throw new InvalidStackItemTypeError(context, type);
           }
 
-          return { context, results: [new BooleanStackItem(type === item.type)] };
+          return { context: { ...context, pc: pc + 1 }, results: [new BooleanStackItem(type === item.type)] };
+        },
+      }),
+    ],
+    [
+      OpCodeToByteCode.CONVERT,
+      createOp({
+        name: 'CONVERT',
+        in: 1,
+        out: 1,
+        invoke: ({ context, args }) => {
+          const item = args[0];
+          const { code, pc } = context;
+          const type = assertStackItemType(code.readUInt8(pc));
+
+          return { context, results: [item.convertTo(type)] };
         },
       }),
     ],
@@ -1851,10 +2408,10 @@ export const lookupOp = ({ context }: { readonly context: ExecutionContext }) =>
     return { op: op.op, context: newContext };
   }
 
-  const create = CREATE_OPCODES[opCode] as OpCreate | undefined;
-  if (create === undefined) {
+  const opCreate = CREATE_OPCODES[opCode] as OpCreate | undefined;
+  if (opCreate === undefined) {
     throw new UnknownOpError(context, `${opCode}`);
   }
 
-  return create.create({ context: newContext });
+  return opCreate.create({ context: newContext });
 };

@@ -1,4 +1,4 @@
-import { EquatableKey } from '@neo-one/node-core';
+import { EquatableKey } from '../../Equatable';
 import { ObjectStackItem } from './ObjectStackItem';
 
 export class EquatableKeyStackItem<Value extends EquatableKey> extends ObjectStackItem<Value> {

@@ -1,19 +1,12 @@
-import {
-  CallFlags,
-  common,
-  ContractParameter,
-  ECPoint,
-  TriggerType,
-  UInt160,
-  UInt256,
-  VMState,
-} from '@neo-one/client-common';
+import { CallFlags, common, ECPoint, TriggerType, UInt160, UInt256, VMState } from '@neo-one/client-common';
 import { BN } from 'bn.js';
 import { Action } from './action';
 import { Block } from './Block';
+import { Blockchain } from './Blockchain';
+import { ContractParameter } from './contractParameter';
 import { ExecutionResult } from './executionResult';
 import { Notification } from './Notification';
-import { SerializableContainer } from './Serializable';
+import { ScriptContainer, SerializableContainer } from './Serializable';
 import { VMProtocolSettingsIn } from './Settings';
 import { StackItem } from './StackItems';
 import { Batch } from './Storage';
@@ -157,9 +150,8 @@ export interface ExecutionAction {
 export interface ExecuteScriptsResult {
   readonly state: VMState;
   readonly stack: readonly ContractParameter[];
-  readonly stackAlt: readonly ContractParameter[];
+  readonly stackTry: readonly ContractParameter[];
   readonly gasConsumed: BN;
-  readonly gasCost: BN;
   readonly errorMessage?: string;
 }
 
@@ -172,7 +164,7 @@ export interface VMListeners {
 
 export type ExecuteScripts = (input: {
   readonly scripts: readonly Script[];
-  readonly blockchain: WriteBlockchain;
+  readonly blockchain: Blockchain;
   readonly scriptContainer: ScriptContainer;
   readonly triggerType: TriggerType;
   readonly action: ExecutionAction;

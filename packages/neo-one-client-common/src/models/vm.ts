@@ -322,6 +322,17 @@ export const assertSysCallHash = (value: string): SysCallHashName => {
   throw new InvalidFormatError();
 };
 
+// tslint:disable-next-line: strict-type-predicates
+const isSysCallHashNum = (num: number): num is SysCallHashNum => SysCallHashNum[num] !== undefined;
+
+export const assertSysCallHashNum = (num: number): SysCallHashNum => {
+  if (isSysCallHashNum(num)) {
+    return num;
+  }
+
+  throw new InvalidFormatError();
+};
+
 /**
  * if we do this with less lines TS will complain about the return type;
  * we could still look into another form of storing these syscalls, should test
@@ -390,6 +401,8 @@ export const toSysCallHash = (value: SysCall): SysCallHash => {
 };
 
 export const toSysCallName = (hash: SysCallHashNum): SysCallHashName => assertSysCallHash(SysCallHashNum[hash]);
+
+export const toSysCallHashNum = (value: SysCall): SysCallHashNum => assertSysCallHashNum(SysCallHashNum[value]);
 
 export const operandSizePrefixTable: { readonly [K in ByteCode]: number } = {
   [Op.PUSHINT8]: 0,

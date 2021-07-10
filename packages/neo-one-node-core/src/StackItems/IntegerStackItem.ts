@@ -1,4 +1,4 @@
-import { StackItemType } from '@neo-one/client-common';
+import { BinaryWriter, StackItemType, utils } from '@neo-one/client-common';
 import { BN } from 'bn.js';
 import { ContractParameter, IntegerContractParameter } from '../contractParameter';
 import { InvalidIntegerStackItemError } from '../errors';
@@ -28,6 +28,10 @@ export class IntegerStackItem extends PrimitiveStackItemBase {
     this.value = value;
   }
 
+  public get size() {
+    return this.memory.length;
+  }
+
   public equals(other: StackItem) {
     if (isIntegerStackItem(other)) {
       return this.value.eq(other.getInteger());
@@ -46,5 +50,13 @@ export class IntegerStackItem extends PrimitiveStackItemBase {
 
   public toContractParameter(_seen: Set<StackItemBase> = new Set()): ContractParameter {
     return new IntegerContractParameter(this.value);
+  }
+
+  protected serializeInternal(): Buffer {
+    const writer = new BinaryWriter();
+    writer.writeUInt8(StackItemType.Integer);
+    writer.writeVarBytesLE(utils.toSignedBuffer(this.value));
+
+    return writer.toBuffer();
   }
 }

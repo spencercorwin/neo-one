@@ -1,12 +1,15 @@
-import { common, UInt160 } from '@neo-one/client-common';
-import { ContractParameter, Hash160ContractParameter } from '@neo-one/node-core';
-import { StackItemBase } from './StackItemBase';
+import { common, StackItemType, UInt160 } from '@neo-one/client-common';
+import { ContractParameter, Hash160ContractParameter } from '../../contractParameter';
+import { StackItemBase } from '../StackItemBase';
 
 export class UInt160StackItem extends StackItemBase {
   public readonly value: UInt160;
 
   public constructor(value: UInt160) {
-    super();
+    super({
+      type: StackItemType.InteropInterface,
+      isNull: false,
+    });
     this.value = value;
   }
 

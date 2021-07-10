@@ -1,12 +1,15 @@
-import { common, UInt256 } from '@neo-one/client-common';
-import { ContractParameter, Hash256ContractParameter } from '@neo-one/node-core';
-import { StackItemBase } from './StackItemBase';
+import { common, StackItemType, UInt256 } from '@neo-one/client-common';
+import { ContractParameter, Hash256ContractParameter } from '../../contractParameter';
+import { StackItemBase } from '../StackItemBase';
 
 export class UInt256StackItem extends StackItemBase {
   public readonly value: UInt256;
 
   public constructor(value: UInt256) {
-    super();
+    super({
+      isNull: false,
+      type: StackItemType.InteropInterface,
+    });
     this.value = value;
   }
 

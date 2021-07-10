@@ -1,12 +1,16 @@
-import { ContractParameter, InteropInterfaceContractParameter } from '@neo-one/node-core';
+import { StackItemType } from '@neo-one/client-common';
+import { ContractParameter, InteropInterfaceContractParameter } from '../../contractParameter';
+import { StackItemBase } from '../StackItemBase';
 import { InvalidValueBufferError, UnsupportedStackItemSerdeError } from './errors';
-import { StackItemBase } from './StackItemBase';
 
 export class ObjectStackItem<Value> extends StackItemBase {
   public readonly value: Value;
 
   public constructor(value: Value) {
-    super();
+    super({
+      isNull: false,
+      type: StackItemType.InteropInterface,
+    });
     this.value = value;
   }
 

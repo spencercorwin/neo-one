@@ -1,13 +1,14 @@
 import { crypto, TriggerType, utils, VMState } from '@neo-one/client-common';
 import {
   Block,
+  Blockchain,
   ByteArrayContractParameter,
   ExecuteScriptsResult,
   ExecutionAction,
   Script,
   ScriptContainer,
+  StackItem,
   VMListeners,
-  WriteBlockchain,
 } from '@neo-one/node-core';
 import { BN } from 'bn.js';
 import _ from 'lodash';
@@ -29,7 +30,6 @@ import {
   UnknownError,
 } from './errors';
 import { lookupOp } from './opcodes';
-import { StackItem } from './stackItem';
 
 const getErrorMessage = (error: Error) => `${error.message}\n${error.stack}`;
 
@@ -57,7 +57,7 @@ const executeNext = async ({
     throw new StackUnderflowError(context, op.name, context.stack.length, op.in);
   }
 
-  if (context.stackAlt.length < op.inAlt) {
+  if (context.stackTry.length < op.inTry) {
     throw new AltStackUnderflowError(context);
   }
 
@@ -66,16 +66,16 @@ const executeNext = async ({
   }
 
   const args = context.stack.slice(0, op.in);
-  const argsAlt = context.stackAlt.slice(0, op.inAlt);
+  const argsTry = context.stackTry.slice(0, op.inTry);
 
   context = {
     ...context,
     stack: context.stack.slice(op.in),
-    stackAlt: context.stackAlt.slice(op.inAlt),
+    stackTry: context.stackTry.slice(op.inTry),
     stackCount:
       context.stackCount +
       args.reduce((acc, val) => acc + val.decrement(), 0) +
-      argsAlt.reduce((acc, val) => acc + val.decrement(), 0),
+      argsTry.reduce((acc, val) => acc + val.decrement(), 0),
     gasLeft: context.gasLeft.sub(op.fee),
   };
 
@@ -85,7 +85,7 @@ const executeNext = async ({
 
   let result;
   try {
-    result = await op.invoke({ context, args, argsAlt });
+    result = await op.invoke({ context, args, argsTry });
   } catch (error) {
     if (error.code === 'VM_ERROR') {
       throw error;
@@ -96,7 +96,7 @@ const executeNext = async ({
     throw newError;
   }
 
-  const { context: newContext, results, resultsAlt } = result;
+  const { context: newContext, results, resultsTry } = result;
   context = newContext;
 
   if (op.out > 0) {
@@ -112,17 +112,17 @@ const executeNext = async ({
     throw new UnknownError(context);
   }
 
-  if (op.outAlt > 0) {
-    if (resultsAlt === undefined || resultsAlt.length !== op.outAlt) {
+  if (op.outTry > 0) {
+    if (resultsTry === undefined || resultsTry.length !== op.outTry) {
       throw new UnknownError(context);
     }
 
     context = {
       ...context,
-      stackAlt: _.reverse(resultsAlt).concat(context.stackAlt),
-      stackCount: context.stackCount + resultsAlt.reduce((acc, value) => acc + value.increment(), 0),
+      stackTry: _.reverse(resultsTry).concat(context.stackTry),
+      stackCount: context.stackCount + resultsTry.reduce((acc, value) => acc + value.increment(), 0),
     };
-  } else if (resultsAlt !== undefined) {
+  } else if (resultsTry !== undefined) {
     throw new UnknownError(context);
   }
 
@@ -155,11 +155,14 @@ const run = async ({ context: contextIn }: { readonly context: ExecutionContext 
         pc: context.pc,
         depth: context.depth,
         stack: context.stack,
-        stackAlt: context.stackAlt,
+        stackTry: context.stackTry,
         gasLeft: context.gasLeft,
         createdContracts: context.createdContracts,
         returnValueCount: context.returnValueCount,
         stackCount: context.stackCount,
+        staticFields: context.staticFields,
+        localVariables: context.localVariables,
+        arguments: context.arguments,
       };
     }
   }
@@ -181,7 +184,7 @@ export const executeScript = async ({
     entryScriptHash = callingScriptHash,
     depth = 1,
     stack = [],
-    stackAlt = [],
+    stackTry = [],
     createdContracts = {},
     returnValueCount = -1,
     stackCount = 0,
@@ -189,7 +192,7 @@ export const executeScript = async ({
   } = {},
 }: {
   readonly code: Buffer;
-  readonly blockchain: WriteBlockchain;
+  readonly blockchain: Blockchain;
   readonly init: ExecutionInit;
   readonly gasLeft: BN;
   readonly options?: Partial<Options>;
@@ -212,7 +215,7 @@ export const executeScript = async ({
     pc,
     depth,
     stack,
-    stackAlt,
+    stackTry,
     gasLeft,
     createdContracts,
     returnValueCount,
@@ -247,7 +250,7 @@ export const execute = async ({
   persistingBlock,
 }: {
   readonly scripts: readonly Script[];
-  readonly blockchain: WriteBlockchain;
+  readonly blockchain: Blockchain;
   readonly scriptContainer: ScriptContainer;
   readonly triggerType: TriggerType;
   readonly action: ExecutionAction;
@@ -284,7 +287,7 @@ export const execute = async ({
       let options: Options = {
         depth: scripts.length - idx,
         stack: [],
-        stackAlt: [],
+        stackTry: [],
         createdContracts: {},
         scriptHashStack: [entryScriptHash],
         scriptHash,
@@ -297,7 +300,7 @@ export const execute = async ({
         options = {
           depth: scripts.length - idx,
           stack: context.stack,
-          stackAlt: context.stackAlt,
+          stackTry: context.stackTry,
           createdContracts: context.createdContracts,
           scriptHashStack: context.scriptHashStack,
           scriptHash,
@@ -326,9 +329,8 @@ export const execute = async ({
     return {
       state: errorMessage === undefined ? VMState.HALT : VMState.FAULT,
       stack: [],
-      stackAlt: [],
+      stackTry: [],
       gasConsumed: utils.ZERO,
-      gasCost: utils.ZERO,
       errorMessage,
     };
   }
@@ -345,9 +347,8 @@ export const execute = async ({
   return {
     state: errorMessage === undefined ? finalContext.state : VMState.FAULT,
     stack: finalContext.stack.map(toContractParameter),
-    stackAlt: finalContext.stackAlt.map(toContractParameter),
+    stackTry: finalContext.stackTry.map(toContractParameter),
     gasConsumed,
-    gasCost,
     errorMessage: errorMessage === undefined ? finalContext.errorMessage : errorMessage,
   };
 };

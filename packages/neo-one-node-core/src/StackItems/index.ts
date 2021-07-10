@@ -10,3 +10,4 @@ export * from './PointerStackItem';
 export * from './StructStackItem';
 export * from './StackItems';
 export * from './errors';
+export * from './interopStackItems';

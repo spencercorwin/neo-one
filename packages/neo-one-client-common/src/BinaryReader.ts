@@ -109,6 +109,26 @@ export class BinaryReader {
     return new BN(buffer, 'le').fromTwos(buffer.length * 8);
   }
 
+  public readUInt128LE(): BN {
+    return new BN(this.readBytes(16), 'le');
+  }
+
+  public readInt128LE(): BN {
+    const buffer = this.readBytes(16);
+
+    return new BN(buffer, 'le').fromTwos(buffer.length * 16);
+  }
+
+  public readUInt256LE(): BN {
+    return new BN(this.readBytes(32), 'le');
+  }
+
+  public readInt256LE(): BN {
+    const buffer = this.readBytes(32);
+
+    return new BN(buffer, 'le').fromTwos(buffer.length * 32);
+  }
+
   // NEO specific
   public readUInt160(): UInt160 {
     return common.bufferToUInt160(this.readBytes(common.UINT160_BUFFER_BYTES));

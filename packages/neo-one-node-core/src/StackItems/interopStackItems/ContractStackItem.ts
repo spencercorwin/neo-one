@@ -1,4 +1,4 @@
-import { Contract } from '@neo-one/node-core';
+import { Contract } from '../../Contract';
 import { EquatableKeyStackItem } from './EquatableKeyStackItem';
 
 export class ContractStackItem extends EquatableKeyStackItem<Contract> {
