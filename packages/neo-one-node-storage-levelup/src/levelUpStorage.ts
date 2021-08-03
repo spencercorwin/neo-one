@@ -143,11 +143,18 @@ export const levelUpStorage = ({ db, context }: LevelUpStorageOptions): Storage 
       db,
       getSearchRange: keys.getStorageSearchRange,
       serializeKey: keys.createStorageKey,
-      deserializeKey: (buffer) =>
-        StorageKey.deserializeWire({
+      deserializeKey: (buffer) => {
+        // const buf = buffer.toString('hex');
+        // console.log('Deserializing storagekey: ', buf);
+        // if (buf.slice(0, 11) === 'fbffffff21') {
+        //   console.log('Deserializing storagekey: ', buf);
+        // }
+
+        return StorageKey.deserializeWire({
           context,
           buffer,
-        }),
+        });
+      },
       deserializeValue: (buffer) =>
         StorageItem.deserializeWire({
           context,

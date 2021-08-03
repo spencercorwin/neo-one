@@ -91,19 +91,52 @@ export class NEOToken extends FungibleToken implements NEOContract {
 
   public async getCandidates(storage: NativeContractStorageContext): Promise<readonly Candidate[]> {
     const searchKey = this.createStorageKey(this.prefixes.candidate).toSearchPrefix();
+    // console.log('Search key being used to search in TS side for candidates: ', searchKey.toString('hex'));
+    // console.log('getCandidates 1');
+    const found = storage.storages.find$(searchKey);
+    // console.log('getCandidates 2');
+    const states = found.pipe(
+      map(({ key, value }) => {
+        // console.log('getCandidates 3');
+        // console.log(key.key.slice(1));
+        // console.log(key.key.slice(1).length);
+        // console.log('key buffer out: ', key.key.toString('hex'));
+        const point = common.bufferToECPoint(key.key.slice(1));
+        // console.log('getCandidates 4');
+        const state = utils.getInteroperable(value, CandidateState.fromStackItem);
+        // console.log('getCandidates 5');
 
-    return storage.storages
-      .find$(searchKey)
-      .pipe(
-        map(({ key, value }) => ({
-          point: common.bufferToECPoint(key.key.slice(1)),
-          state: utils.getInteroperable(value, CandidateState.fromStackItem),
-        })),
-        filter((value) => value.state.registered),
-        map(({ point, state }) => ({ publicKey: point, votes: state.votes })),
-        toArray(),
-      )
-      .toPromise();
+        return { point, state };
+      }),
+    );
+    // console.log('getCandidates 6');
+    const filtered = states.pipe(filter((val) => val.state.registered));
+    // console.log('getCandidates 7');
+    const mapped = filtered.pipe(map(({ point, state }) => ({ publicKey: point, votes: state.votes })));
+    // console.log('getCandidates 8');
+    const array = mapped.pipe(toArray());
+    // console.log('getCandidates 9');
+    const promised = array.toPromise();
+    // console.log('getCandidates 10');
+    const final = await promised;
+    // console.log('getCandidates 11');
+    // console.log(final.length);
+    // console.log(final);
+
+    return final;
+
+    // return storage.storages
+    //   .find$(searchKey)
+    //   .pipe(
+    //     map(({ key, value }) => ({
+    //       point: common.bufferToECPoint(key.key.slice(1)),
+    //       state: utils.getInteroperable(value, CandidateState.fromStackItem),
+    //     })),
+    //     filter((value) => value.state.registered),
+    //     map(({ point, state }) => ({ publicKey: point, votes: state.votes })),
+    //     toArray(),
+    //   )
+    //   .toPromise();
   }
 
   public async getCommittee(storage: NativeContractStorageContext): Promise<readonly ECPoint[]> {

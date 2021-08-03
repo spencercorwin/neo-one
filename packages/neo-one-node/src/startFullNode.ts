@@ -78,6 +78,7 @@ export const startFullNode = async ({
     if (telemetry !== undefined && telemetry.logging !== undefined && telemetry.logging.level !== undefined) {
       setGlobalLogLevel(telemetry.logging.level);
     }
+    // setGlobalLogLevel('silent');
 
     const level = customLeveldown === undefined ? RocksDB(dataPath) : customLeveldown;
     disposable = composeDisposable(disposable, async () => {

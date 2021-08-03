@@ -781,10 +781,25 @@ export class Blockchain {
       await this.verifyBlock(block);
     }
 
+    // if (block.index === 16660) {
+    //   throw new Error('Throwing at block 16660');
+    // }
+    // if (block.index === 16678) {
+    //   const blockOut = block.serializeJSON(this.serializeJSONContext);
+    //   console.log(blockOut);
+    //   console.log(blockOut.tx[0]);
+    // }
+
     const blockchain = this.createPersistingBlockchain();
 
     const { changeBatch: persistBatch, applicationsExecuted } = blockchain.persistBlock(block);
     await this.storage.commitBatch(persistBatch);
+    // if (block.index === 3935) {
+    // console.log(persistBatch);
+    // console.log('Trying to print candidates');
+    // console.log((await this.native.NEO.getCandidates(this.storage)).length);
+    // console.log('Done printing candidates');
+    // }
 
     this.updateBlockMetadata(block);
 
