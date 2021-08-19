@@ -31,12 +31,12 @@ export class MapForEach extends BuiltinInstanceMemberCall {
 
     // [map]
     sb.emitHelper(node, options, sb.helpers.unwrapMap);
-    // [iterator]
-    sb.emitHelper(node, options, sb.helpers.createMapIterator);
+    // [nestedArr]
+    sb.emitHelper(node, options, sb.helpers.mapToNestedArr); // TODO: need to swap key and values here and maybe even keep the map as third arg?
     // [objectVal, iterator]
     sb.visit(tsUtils.argumented.getArguments(node)[0], options);
     // []
-    sb.emitHelper(node, options, sb.helpers.rawIteratorForEachFunc({ deserializeKey: true }));
+    sb.emitHelper(node, options, sb.helpers.arrForEachFunc); // rawIteratorForEach
 
     if (optionsIn.pushValue) {
       // [val]
