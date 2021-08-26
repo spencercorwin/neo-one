@@ -1,6 +1,13 @@
 # Change Log - @neo-one/utils
 
-This log was last generated on Mon, 08 Feb 2021 21:00:42 GMT and should not be manually modified.
+This log was last generated on Thu, 26 Aug 2021 21:09:01 GMT and should not be manually modified.
+
+## 3.2.0
+Thu, 26 Aug 2021 21:09:01 GMT
+
+### Minor changes
+
+- Updates for first N3 MainNet release
 
 ## 3.1.0
 Mon, 08 Feb 2021 21:00:42 GMT

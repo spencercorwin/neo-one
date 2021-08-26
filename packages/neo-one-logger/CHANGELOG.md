@@ -1,6 +1,13 @@
 # Change Log - @neo-one/logger
 
-This log was last generated on Thu, 23 Jul 2020 22:11:12 GMT and should not be manually modified.
+This log was last generated on Thu, 26 Aug 2021 21:09:01 GMT and should not be manually modified.
+
+## 2.7.0
+Thu, 26 Aug 2021 21:09:01 GMT
+
+### Minor changes
+
+- Updates for first N3 MainNet release
 
 ## 2.6.1
 Thu, 23 Jul 2020 22:11:12 GMT

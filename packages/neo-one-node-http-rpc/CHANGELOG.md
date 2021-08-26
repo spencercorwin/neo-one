@@ -1,6 +1,13 @@
 # Change Log - @neo-one/node-http-rpc
 
-This log was last generated on Mon, 08 Feb 2021 21:00:42 GMT and should not be manually modified.
+This log was last generated on Thu, 26 Aug 2021 21:09:01 GMT and should not be manually modified.
+
+## 3.7.0
+Thu, 26 Aug 2021 21:09:01 GMT
+
+### Updates
+
+- Updates for first N3 MainNet release
 
 ## 3.0.1
 Mon, 08 Feb 2021 21:00:42 GMT

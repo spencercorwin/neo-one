@@ -2,6 +2,18 @@
   "name": "@neo-one/logger",
   "entries": [
     {
+      "version": "2.7.0",
+      "tag": "@neo-one/logger_v2.7.0",
+      "date": "Thu, 26 Aug 2021 21:09:01 GMT",
+      "comments": {
+        "minor": [
+          {
+            "comment": "Updates for first N3 MainNet release"
+          }
+        ]
+      }
+    },
+    {
       "version": "2.6.1",
       "tag": "@neo-one/logger_v2.6.1",
       "date": "Thu, 23 Jul 2020 22:11:12 GMT",

@@ -1,6 +1,13 @@
 # Change Log - @neo-one/typescript-concatenator
 
-This log was last generated on Tue, 08 Dec 2020 19:29:01 GMT and should not be manually modified.
+This log was last generated on Thu, 26 Aug 2021 21:09:01 GMT and should not be manually modified.
+
+## 2.7.0
+Thu, 26 Aug 2021 21:09:01 GMT
+
+### Minor changes
+
+- Updates for first N3 MainNet release
 
 ## 2.6.2
 Tue, 08 Dec 2020 19:29:01 GMT

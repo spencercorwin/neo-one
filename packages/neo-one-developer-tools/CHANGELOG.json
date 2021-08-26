@@ -2,6 +2,18 @@
   "name": "@neo-one/developer-tools",
   "entries": [
     {
+      "version": "3.7.0",
+      "tag": "@neo-one/developer-tools_v3.7.0",
+      "date": "Thu, 26 Aug 2021 21:09:01 GMT",
+      "comments": {
+        "none": [
+          {
+            "comment": "Updates for first N3 MainNet release"
+          }
+        ]
+      }
+    },
+    {
       "version": "3.0.0",
       "tag": "@neo-one/developer-tools_v3.0.0",
       "date": "Tue, 08 Dec 2020 19:29:01 GMT",
