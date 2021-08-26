@@ -1,0 +1,11 @@
+{
+  "changes": [
+    {
+      "comment": "Updates for first N3 MainNet release",
+      "type": "none",
+      "packageName": "@neo-one/node-rpc-handler"
+    }
+  ],
+  "packageName": "@neo-one/node-rpc-handler",
+  "email": "29364457+spencercorwin@users.noreply.github.com"
+}

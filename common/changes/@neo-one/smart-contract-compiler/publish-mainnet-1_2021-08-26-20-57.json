@@ -1,0 +1,11 @@
+{
+  "changes": [
+    {
+      "comment": "Updates for first N3 MainNet release",
+      "type": "none",
+      "packageName": "@neo-one/smart-contract-compiler"
+    }
+  ],
+  "packageName": "@neo-one/smart-contract-compiler",
+  "email": "29364457+spencercorwin@users.noreply.github.com"
+}

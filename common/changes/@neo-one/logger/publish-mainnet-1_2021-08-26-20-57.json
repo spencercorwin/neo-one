@@ -1,0 +1,11 @@
+{
+  "changes": [
+    {
+      "comment": "Updates for first N3 MainNet release",
+      "type": "minor",
+      "packageName": "@neo-one/logger"
+    }
+  ],
+  "packageName": "@neo-one/logger",
+  "email": "29364457+spencercorwin@users.noreply.github.com"
+}
