@@ -1,6 +1,6 @@
 {
   "name": "@neo-one/client",
-  "version": "3.7.0",
+  "version": "3.7.1-n3",
   "description": "NEO•ONE client API.",
   "main": "./dist/cjs/index",
   "module": "./dist/esm/index",
@@ -13,9 +13,9 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "@neo-one/client-common": "^3.7.0",
-    "@neo-one/client-core": "^3.7.0",
-    "@neo-one/developer-tools": "^3.7.0"
+    "@neo-one/client-common": "3.7.1-n3",
+    "@neo-one/client-core": "3.7.1-n3",
+    "@neo-one/developer-tools": "3.7.1-n3"
   },
   "devDependencies": {
     "@neo-one/build-tools": "^1.0.0",

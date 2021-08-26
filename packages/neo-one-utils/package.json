@@ -1,6 +1,6 @@
 {
   "name": "@neo-one/utils",
-  "version": "3.2.0",
+  "version": "3.3.0-n3",
   "description": "NEO•ONE shared utils.",
   "main": "./dist/cjs/index",
   "module": "./dist/esm/index",

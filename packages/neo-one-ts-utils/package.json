@@ -1,6 +1,6 @@
 {
   "name": "@neo-one/ts-utils",
-  "version": "2.7.0",
+  "version": "2.8.0-n3",
   "description": "NEO•ONE TypeScript utils.",
   "main": "./dist/cjs/index",
   "module": "./dist/esm/index",
