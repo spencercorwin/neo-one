@@ -352,10 +352,14 @@ const call = ({ name, tailCall }: { readonly name: OpCode; readonly tailCall?: b
 
           const executingContract = await context.blockchain.getContract(scriptHash);
         }
+
         const contract = await context.blockchain.getContract(hash);
+        if (contract === undefined) {
+          throw new Error('Expected contract to be defined');
+        }
         const scriptHashStack = [hash, ...context.scriptHashStack];
         const resultContext = await context.engine.executeScript({
-          code: contract.script,
+          code: contract.nef.script,
           blockchain: context.blockchain,
           init: context.init,
           gasLeft: context.gasLeft,
@@ -452,11 +456,14 @@ const callIsolated = ({
         }
 
         const contract = await context.blockchain.getContract(hash);
+        if (contract === undefined) {
+          throw new Error('Expected contract to be defined');
+        }
         const nextStack = dynamicCall ? args.slice(1) : args;
         const scriptHashStack = [hash, ...context.scriptHashStack];
 
         const resultContext = await context.engine.executeScript({
-          code: contract.script,
+          code: contract.nef.script,
           blockchain: context.blockchain,
           init: context.init,
           gasLeft: context.gasLeft,
@@ -932,9 +939,11 @@ const OPCODE_PAIRS = (
       OpCodeToByteCode.RET,
       createOp({
         name: 'RET',
-        invoke: ({ context }) => ({
-          context: { ...context, state: VMState.HALT },
-        }),
+        invoke: ({ context }) => {
+          // do something
+
+          return { context: { ...context, state: VMState.HALT } };
+        },
       }),
     ],
     [

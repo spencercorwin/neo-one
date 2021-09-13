@@ -5,6 +5,7 @@ import { Block } from './Block';
 import { ContractState } from './ContractState';
 import { Header } from './Header';
 import { HeaderCache } from './HeaderCache';
+import { NativeContract } from './Native';
 import { ExtensiblePayload } from './payload';
 import { DeserializeWireContext, SerializeJSONContext } from './Serializable';
 import { BlockchainSettings, VMProtocolSettingsIn } from './Settings';
@@ -34,6 +35,7 @@ export interface Blockchain extends BlockchainStorage {
   readonly verifyOptions: VerifyOptions;
   readonly onPersistNativeContractScript: Buffer;
   readonly headerCache: HeaderCache;
+  readonly nativeContracts: readonly NativeContract[];
 
   readonly persistBlock: (options: { readonly block: Block; readonly verify?: boolean }) => Promise<void>;
 

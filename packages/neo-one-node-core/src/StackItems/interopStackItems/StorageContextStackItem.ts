@@ -1,40 +1,35 @@
-import { common, UInt160 } from '@neo-one/client-common';
-import { ContractParameter, Hash160ContractParameter } from '@neo-one/node-core';
-import { AsStorageContextStackItemOptions, StackItemBase } from './StackItemBase';
+import { BN } from 'bn.js';
+import { ContractParameter, IntegerContractParameter } from '../../contractParameter';
+import { AsStorageContextStackItemOptions, StackItemBase } from '../StackItemBase';
 import { StackItemType } from './StackItemType';
 
 export class StorageContextStackItem extends StackItemBase {
   public static readonly type = StackItemType.InteropInterface;
-  public readonly value: UInt160;
+  public readonly id: number;
   public readonly isReadOnly: boolean;
 
-  public constructor(value: UInt160, isReadOnly = false) {
-    super();
-    this.value = value;
+  public constructor(id: number, isReadOnly = false) {
+    super({ isNull: false, type: StackItemType.InteropInterface });
+    this.id = id;
     this.isReadOnly = isReadOnly;
   }
 
-  public asUInt160(): UInt160 {
-    return this.value;
-  }
-
+  // TODO
   public asBoolean(): boolean {
-    return (this.value as UInt160 | undefined) !== undefined;
+    return (this.id as number | undefined) !== undefined;
   }
 
-  public asBuffer(): Buffer {
-    return common.uInt160ToBuffer(this.value);
-  }
+  // TODO: as buffer?
 
   public asStorageContextStackItem(_options: AsStorageContextStackItemOptions): StorageContextStackItem {
     return this;
   }
 
   public asReadOnly(): StorageContextStackItem {
-    return new StorageContextStackItem(this.value, true);
+    return new StorageContextStackItem(this.id, true);
   }
 
   public toContractParameter(_seen: Set<StackItemBase> = new Set()): ContractParameter {
-    return new Hash160ContractParameter(this.value);
+    return new IntegerContractParameter(new BN(this.id));
   }
 }

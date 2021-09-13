@@ -311,6 +311,10 @@ export class Blockchain {
     await this.persistBlock({ block: this.settings.genesisBlock });
   }
 
+  public get nativeContracts() {
+    return this.native.nativeContracts;
+  }
+
   public async verifyBlock(block: Block): Promise<void> {
     const verification = await block.verify(this.verifyOptions);
     if (!verification) {

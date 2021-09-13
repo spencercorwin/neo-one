@@ -145,6 +145,11 @@ export abstract class StackItemBase {
     return this.getBuffer().some((value) => value !== 0);
   }
 
+  public asStorageContextStackItem(_options: AsStorageContextStackItemOptions): StorageContextStackItem {
+    /* istanbul ignore next */
+    throw new InvalidValueStorageContextStackItemError();
+  }
+
   public get size(): number {
     /* istanbul ignore next */
     throw new Error('Unimplemented.');

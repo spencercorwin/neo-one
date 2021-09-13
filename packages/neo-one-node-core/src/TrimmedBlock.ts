@@ -7,10 +7,11 @@ import {
   UInt256,
   utils as clientCommonUtils,
 } from '@neo-one/client-common';
+import BN from 'bn.js';
 import { NotSupportedError } from './errors';
 import { Header } from './Header';
 import { DeserializeWireBaseOptions, DeserializeWireOptions } from './Serializable';
-import { StackItem } from './StackItems';
+import { ArrayStackItem, BufferStackItem, IntegerStackItem, StackItem } from './StackItems';
 import { utils } from './utils';
 
 export interface TrimmedBlockAdd {
@@ -19,6 +20,17 @@ export interface TrimmedBlockAdd {
 }
 
 export class TrimmedBlock implements SerializableWire {
+  public get size() {
+    return this.sizeInternal();
+  }
+
+  public get hash() {
+    return this.header.hash;
+  }
+
+  public get index() {
+    return this.header.index;
+  }
   public static deserializeWireBase(options: DeserializeWireBaseOptions): TrimmedBlock {
     const { reader } = options;
     const header = Header.deserializeWireBase(options);
@@ -53,16 +65,19 @@ export class TrimmedBlock implements SerializableWire {
     this.hashes = hashes;
   }
 
-  public get size() {
-    return this.sizeInternal();
-  }
-
-  public get hash() {
-    return this.header.hash;
-  }
-
-  public get index() {
-    return this.header.index;
+  public toStackItem() {
+    return new ArrayStackItem([
+      new BufferStackItem(this.header.hash),
+      new IntegerStackItem(new BN(this.header.version)),
+      new BufferStackItem(this.header.previousHash),
+      new BufferStackItem(this.header.merkleRoot),
+      new IntegerStackItem(new BN(this.header.timestamp)),
+      new IntegerStackItem(new BN(this.header.nonce)),
+      new IntegerStackItem(new BN(this.header.index)),
+      new IntegerStackItem(new BN(this.header.primaryIndex)),
+      new BufferStackItem(this.header.nextConsensus),
+      new IntegerStackItem(new BN(this.hashes.length)),
+    ]);
   }
 
   public serializeWireBase(writer: BinaryWriter): void {

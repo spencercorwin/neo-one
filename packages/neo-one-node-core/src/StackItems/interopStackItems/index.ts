@@ -11,3 +11,4 @@ export { ECPointStackItem } from './ECPointStackItem';
 export { StackItemIterator } from './StackItemIterator';
 export { WitnessStackItem } from './WitnessStackItem';
 export { ObjectStackItem } from './ObjectStackItem';
+export * from './EquatableKeyStackItem';

@@ -1,5 +1,6 @@
 import { UInt256 } from '@neo-one/client-common';
-import { assertStructStackItem, StackItem } from '../StackItems';
+import { BN } from 'bn.js';
+import { assertStructStackItem, BufferStackItem, IntegerStackItem, StackItem, StructStackItem } from '../StackItems';
 import { Transaction } from './Transaction';
 
 export type TransactionKey = UInt256;
@@ -30,5 +31,12 @@ export class TransactionState {
   public constructor({ blockIndex, transaction }: TransactionStateAdd) {
     this.blockIndex = blockIndex;
     this.transaction = transaction;
+  }
+
+  public toStackItem(): StackItem {
+    return new StructStackItem([
+      new IntegerStackItem(new BN(this.blockIndex)),
+      new BufferStackItem(this.transaction.serializeWire()),
+    ]);
   }
 }

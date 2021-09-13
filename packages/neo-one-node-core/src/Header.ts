@@ -10,8 +10,10 @@ import {
   JSONHelper,
   UInt160,
   UInt256,
+  UInt256Hex,
 } from '@neo-one/client-common';
 import { BN } from 'bn.js';
+import { Equals, Equatable } from './Equatable';
 import { InvalidPreviousHeaderError, UnsignedBlockError } from './errors';
 import { NativeContainer } from './Native';
 import {
@@ -68,13 +70,17 @@ export const getBlockScriptHashesForVerifying = async ({
   return [prev.header.nextConsensus];
 };
 
-export class Header implements SerializableWire, SerializableJSON<HeaderJSON>, SerializableContainer {
+export class Header implements SerializableWire, SerializableJSON<HeaderJSON>, SerializableContainer, Equatable {
   public get size(): number {
     return this.sizeInternal();
   }
 
   public get hash(): UInt256 {
     return this.hashInternal();
+  }
+
+  public get hashHex(): UInt256Hex {
+    return this.hashHexInternal();
   }
 
   public get witnesses(): readonly Witness[] {
@@ -145,6 +151,11 @@ export class Header implements SerializableWire, SerializableJSON<HeaderJSON>, S
     });
   }
   public readonly type: SerializableContainerType = 'Header';
+  public readonly toKeyString = utils.toKeyString(Header, () => this.hashHex);
+  // tslint:disable-next-line no-any
+  public readonly equals: Equals = utils.equals(this.constructor as any, this, (other: any) =>
+    common.uInt256Equal(this.hash, other.hash),
+  );
   public readonly serializeWire = createSerializeWire(this.serializeWireBase.bind(this));
   public readonly serializeUnsigned = createSerializeWire(this.serializeWireUnsignedBase.bind(this));
 
@@ -165,6 +176,7 @@ export class Header implements SerializableWire, SerializableJSON<HeaderJSON>, S
         native: context.native,
       }),
   );
+  private readonly hashHexInternal = utils.lazy(() => common.uInt256ToHex(this.hash));
 
   private readonly witnessInternal: Witness | undefined;
   private readonly hashInternal: () => UInt256;

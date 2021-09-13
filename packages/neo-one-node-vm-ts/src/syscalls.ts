@@ -23,8 +23,8 @@ import {
   StackItemIterator,
   StorageContextStackItem,
   StorageItem,
+  StorageKey,
   TransactionStackItem,
-  UInt160StackItem,
   utils,
 } from '@neo-one/node-core';
 import { utils as commonUtils } from '@neo-one/utils';
@@ -134,11 +134,11 @@ const checkWitnessBuffer = async ({
 };
 
 const createPut =
-  ({ name }: { readonly name: 'System.Storage.Put' | 'System.Storage.PutEx' }) =>
+  ({ name }: { readonly name: 'System.Storage.Put' }) =>
   ({ context: contextIn }: CreateSysCallArgs) => {
     const keyIn = contextIn.stack[1] as StackItem | undefined;
     const valueIn = contextIn.stack[2] as StackItem | undefined;
-    const expectedIn = name === 'System.Storage.Put' ? 3 : 4;
+    const expectedIn = 3;
     if (keyIn === undefined || valueIn === undefined) {
       throw new StackUnderflowError(contextIn, 'SYSCALL', contextIn.stack.length, expectedIn);
     }
@@ -168,18 +168,18 @@ const createPut =
         }
 
         const value = args[2].getBuffer();
-        const item = await context.blockchain.storageItem.tryGet({ hash, key });
+        const item = await context.blockchain.storages.tryGet({ hash, key });
         // if (item === undefined) {
-        //   await context.blockchain.storageItem.add(new StorageItem({ hash, key, value, flags }));
+        //   await context.blockchain.storages.add(new StorageItem({ hash, key, value, flags }));
         // } else if (hasStorageFlag(item.flags, StorageFlags.Constant)) {
         //   throw new ConstantStorageError(context, key);
         // } else {
-        //   await context.blockchain.storageItem.update(item, { value, flags });
+        //   await context.blockchain.storages.update(item, { value, flags });
         // }
         if (item !== undefined) {
-          await context.blockchain.storageItem.update(item, { value, flags });
+          await context.blockchain.storages.update(item, { value, flags });
         } else {
-          await context.blockchain.storageItem.add(new StorageItem({ hash, key, value, flags }));
+          await context.blockchain.storages.add(new StorageItem({ hash, key, value, flags }));
         }
 
         return { context };
@@ -188,6 +188,75 @@ const createPut =
   };
 
 export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
+  'System.Contract.Call': createSysCall({
+    name: 'System.Contract.Call',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Contract.CallNative': createSysCall({
+    name: 'System.Contract.CallNative',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Contract.NativeOnPersist': createSysCall({
+    name: 'System.Contract.NativeOnPersist',
+    invoke: async ({ context }) => {
+      if (context.init.triggerType !== TriggerType.OnPersist) {
+        throw new Error('Invalid');
+      }
+      context.blockchain.nativeContracts.forEach((native) => {
+        const updates = context.blockchain.settings.nativeUpdateHistory[native.name];
+        if (updates.length !== 0 && updates[0] <= context.persistingBlock.index) {
+          await native.onPersist();
+        }
+      });
+
+      return { context };
+    },
+  }),
+  'System.Contract.NativePostPersist': createSysCall({
+    name: 'System.Contract.NativePostPersist',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Contract.CreateStandardAccount': createSysCall({
+    name: 'System.Contract.CreateStandardAccount',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Contract.CreateMultisigAccount': createSysCall({
+    name: 'System.Contract.CreateMultisigAccount',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Crypto.CheckSig': createSysCall({
+    name: 'System.Crypto.CheckSig',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Crypto.CheckMultisig': createSysCall({
+    name: 'System.Crypto.CheckMultisig',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Runtime.GetNetwork': createSysCall({
+    name: 'System.Runtime.GetNetwork',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Runtime.GetRandom': createSysCall({
+    name: 'System.Runtime.GetRandom',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Runtime.GetNotifications': createSysCall({
+    name: 'System.Runtime.GetNotifications',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Runtime.GasLeft': createSysCall({
+    name: 'System.Runtime.GasLeft',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Runtime.BurnGas': createSysCall({
+    name: 'System.Runtime.BurnGas',
+    invoke: ({ context }) => ({ context }),
+  }),
+  'System.Iterator.Print': createSysCall({
+    name: 'System.Iterator.Print',
+    invoke: ({ context }) => ({ context }),
+  }),
+
   'System.Runtime.Platform': createSysCall({
     name: 'System.Runtime.Platform',
     out: 1,
@@ -277,19 +346,27 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
   'System.Storage.GetContext': createSysCall({
     name: 'System.Storage.GetContext',
     out: 1,
-    invoke: ({ context }) => ({
-      context,
-      results: [new StorageContextStackItem(context.scriptHash)],
-    }),
+    invoke: async ({ context }) => {
+      const contract = await context.blockchain.getContract(context.scriptHash);
+      if (contract === undefined) {
+        throw new Error('Contract not found');
+      }
+
+      return { context, results: [new StorageContextStackItem(contract.id)] };
+    },
   }),
 
   'System.Storage.GetReadOnlyContext': createSysCall({
     name: 'System.Storage.GetReadOnlyContext',
     out: 1,
-    invoke: ({ context }) => ({
-      context,
-      results: [new StorageContextStackItem(context.scriptHash).asReadOnly()],
-    }),
+    invoke: async ({ context }) => {
+      const contract = await context.blockchain.getContract(context.scriptHash);
+      if (contract === undefined) {
+        throw new Error('Contract not found');
+      }
+
+      return { context, results: [new StorageContextStackItem(contract.id).asReadOnly()] };
+    },
   }),
 
   'System.Storage.Get': createSysCall({
@@ -299,11 +376,11 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
     fee: FEES.ONE_HUNDRED,
     invoke: async ({ context, args }) => {
       const hash = vmUtils.toStorageContext({ context, value: args[0] }).value;
+      // pass variable: isreadonly: true which will throw if the storage context is readonly and
+      // this method is trying to modify storage
+      const stgContext = args[0].asStorageContext();
 
-      const item = await context.blockchain.storageItem.tryGet({
-        hash,
-        key: args[1].getBuffer(),
-      });
+      const item = await context.blockchain.storages.tryGet(new StorageKey({ id, key: args[1].getBuffer() }));
 
       const result = item === undefined ? Buffer.from([]) : item.value;
 
@@ -323,7 +400,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
 
       const prefix = args[1].getBuffer();
       const findOptions = args[2].getInteger();
-      const iterable = AsyncIterableX.from<StorageItem>(context.blockchain.storageItem.getAll$({ hash, prefix })).pipe<{
+      const iterable = AsyncIterableX.from<StorageItem>(context.blockchain.storages.find$('', '')).pipe<{
         key: BufferStackItem;
         value: BufferStackItem;
       }>(
@@ -340,32 +417,6 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
     },
   }),
 
-  'System.Iterator.Next': createSysCall({
-    name: 'System.Iterator.Next',
-    in: 1,
-    out: 1,
-    invoke: async ({ context, args }) => {
-      const enumerator = args[0].getIterator();
-      const value = await enumerator.next();
-
-      return {
-        context,
-        results: [new BooleanStackItem(value)],
-      };
-    },
-  }),
-
-  'System.Iterator.Value': createSysCall({
-    name: 'System.Iterator.Value',
-    in: 1,
-    out: 1,
-    invoke: async ({ context, args }) => ({
-      context,
-      // tslint:disable-next-line no-any
-      results: [args[0].getIterator().value() as any],
-    }),
-  }),
-
   'System.Storage.Put': createPut({ name: 'System.Storage.Put' }),
 
   'System.Storage.Delete': createSysCall({
@@ -379,9 +430,10 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
         write: true,
       }).value;
       const key = args[1].getBuffer();
-      const existing = await context.blockchain.storageItem.tryGet({ hash, key });
+      const storageKey = new StorageKey({ id, key });
+      const existing = await context.blockchain.storages.tryGet(storageKey);
       if (existing !== undefined) {
-        await context.blockchain.storageItem.delete({ hash, key });
+        await context.blockchain.storages.delete({ hash, key });
       }
 
       return { context };
@@ -392,14 +444,25 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
     name: 'System.Runtime.GetScriptContainer',
     out: 1,
     invoke: async ({ context }) => {
+      // Transaction = 0x00,
+      // Block = 0x01,
+      // Header = 0x02,
+      // Signers = 0x03,
+      // ExtensiblePayload = 0x04,
+
+      // Tx, TxState, ContractState, NotifyEventARgs, ContractABI, ContractEvent, ContractGroup
+      // ContractManifest, ContractMethod, ContractParam, Permission, AccountState, HashIndexState
+      // native contracts
+      // Trimmed block
+
       let result;
       const { scriptContainer } = context.init;
       switch (scriptContainer.type) {
         case ScriptContainerType.Transaction:
-          result = new TransactionStackItem(scriptContainer.value);
+          result = scriptContainer.value.toStackItem();
           break;
         case ScriptContainerType.Block:
-          result = new BlockStackItem(scriptContainer.value);
+          result = scriptContainer.value.toStackItem();
           break;
         case ScriptContainerType.ExtensiblePayload:
           result = new ConsensusPayloadStackItem(scriptContainer.value);
@@ -425,7 +488,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
     out: 1,
     invoke: async ({ context }) => ({
       context,
-      results: [new UInt160StackItem(context.scriptHash)],
+      results: [new BufferStackItem(context.scriptHash)],
     }),
   }),
 
@@ -436,7 +499,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
       context,
       results: [
         context.scriptHashStack.length > 1
-          ? new UInt160StackItem(context.scriptHashStack[1])
+          ? new BufferStackItem(context.scriptHashStack[1])
           : new BufferStackItem(Buffer.alloc(0, 0)),
       ],
     }),
@@ -447,7 +510,7 @@ export const SYSCALLS: { readonly [K in SysCallEnum]: CreateSysCall } = {
     out: 1,
     invoke: async ({ context }) => ({
       context,
-      results: [new UInt160StackItem(context.scriptHashStack[context.scriptHashStack.length - 1])],
+      results: [new BufferStackItem(context.scriptHashStack[context.scriptHashStack.length - 1])],
     }),
   }),
 };

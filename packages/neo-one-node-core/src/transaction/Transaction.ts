@@ -31,6 +31,7 @@ import {
   SerializeJSONContext,
 } from '../Serializable';
 import { Signer } from '../Signer';
+import { ArrayStackItem, BufferStackItem, IntegerStackItem } from '../StackItems';
 import { TransactionVerificationContext } from '../TransactionVerificationContext';
 import { utils } from '../utils';
 import { maxVerificationGas, Verifiable, VerifyOptions } from '../Verifiable';
@@ -413,6 +414,19 @@ export class Transaction
     }
 
     return this.verifyStateDependent(verifyOptions, verifyContext);
+  }
+
+  public toStackItem() {
+    return new ArrayStackItem([
+      new BufferStackItem(this.hash),
+      new IntegerStackItem(new BN(this.version)),
+      new IntegerStackItem(new BN(this.nonce)),
+      new BufferStackItem(this.sender),
+      new IntegerStackItem(this.systemFee),
+      new IntegerStackItem(this.networkFee),
+      new IntegerStackItem(new BN(this.validUntilBlock)),
+      new BufferStackItem(this.script),
+    ]);
   }
 
   public serializeJSON(): TransactionJSON {

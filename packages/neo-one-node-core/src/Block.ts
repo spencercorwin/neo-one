@@ -15,6 +15,7 @@ import {
 import { BN } from 'bn.js';
 import { Set } from 'immutable';
 import { MerkleTree } from './crypto';
+import { Equals, EquatableKey } from './Equatable';
 import { NotSupportedError } from './errors';
 import { Header } from './Header';
 import { NativeContainer } from './Native';
@@ -37,7 +38,7 @@ export interface BlockAdd {
   readonly transactions: readonly Transaction[];
 }
 
-export class Block implements SerializableContainer, SerializableJSON<BlockJSON> {
+export class Block implements SerializableContainer, SerializableJSON<BlockJSON>, EquatableKey {
   public static deserializeUnsignedWireBase(_options: DeserializeWireBaseOptions): Block {
     throw new NotSupportedError('Cannot deserialize unsigned Block');
   }
@@ -80,6 +81,11 @@ export class Block implements SerializableContainer, SerializableJSON<BlockJSON>
   }
 
   public readonly type: SerializableContainerType = 'Block';
+  // tslint:disable-next-line no-any
+  public readonly equals: Equals = utils.equals(this.constructor as any, this, (other: any) =>
+    common.uInt256Equal(this.hash, other.hash),
+  );
+  public readonly toKeyString = utils.toKeyString(Block, () => this.hashHex);
   public readonly serializeWire = createSerializeWire(this.serializeWireBase.bind(this));
   public readonly serializeUnsigned = createSerializeWire(this.serializeWireBaseUnsigned.bind(this));
   public readonly transactions: readonly Transaction[];
