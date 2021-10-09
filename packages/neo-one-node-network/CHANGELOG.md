@@ -1,6 +1,13 @@
 # Change Log - @neo-one/node-network
 
-This log was last generated on Thu, 07 Oct 2021 20:25:48 GMT and should not be manually modified.
+This log was last generated on Sat, 09 Oct 2021 22:14:54 GMT and should not be manually modified.
+
+## 3.8.3
+Sat, 09 Oct 2021 22:14:54 GMT
+
+### Patches
+
+- Update neo-one deps
 
 ## 3.8.2
 Thu, 07 Oct 2021 20:25:48 GMT

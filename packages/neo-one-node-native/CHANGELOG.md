@@ -1,6 +1,13 @@
 # Change Log - @neo-one/node-native
 
-This log was last generated on Thu, 23 Sep 2021 21:28:34 GMT and should not be manually modified.
+This log was last generated on Sat, 09 Oct 2021 22:14:54 GMT and should not be manually modified.
+
+## 3.8.1
+Sat, 09 Oct 2021 22:14:54 GMT
+
+### Patches
+
+- Update neo-one deps
 
 ## 3.8.0
 Thu, 23 Sep 2021 21:28:34 GMT

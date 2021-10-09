@@ -1,6 +1,13 @@
 # Change Log - @neo-one/client-switch
 
-This log was last generated on Sat, 09 Oct 2021 22:04:54 GMT and should not be manually modified.
+This log was last generated on Sat, 09 Oct 2021 22:14:54 GMT and should not be manually modified.
+
+## 3.8.5
+Sat, 09 Oct 2021 22:14:54 GMT
+
+### Patches
+
+- Update neo-one deps
 
 ## 3.8.4
 Sat, 09 Oct 2021 22:04:54 GMT
