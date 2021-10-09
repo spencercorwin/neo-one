@@ -1,6 +1,13 @@
 # Change Log - @neo-one/node-vm
 
-This log was last generated on Sat, 02 Oct 2021 20:01:20 GMT and should not be manually modified.
+This log was last generated on Sat, 09 Oct 2021 22:04:54 GMT and should not be manually modified.
+
+## 3.8.2
+Sat, 09 Oct 2021 22:04:54 GMT
+
+### Patches
+
+- Update Neo package version
 
 ## 3.8.1
 Sat, 02 Oct 2021 20:01:20 GMT

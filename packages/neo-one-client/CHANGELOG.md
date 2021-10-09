@@ -1,6 +1,13 @@
 # Change Log - @neo-one/client
 
-This log was last generated on Thu, 07 Oct 2021 04:09:53 GMT and should not be manually modified.
+This log was last generated on Sat, 09 Oct 2021 22:04:54 GMT and should not be manually modified.
+
+## 3.9.1
+Sat, 09 Oct 2021 22:04:54 GMT
+
+### Patches
+
+- Export new contractParamToJSON func
 
 ## 3.9.0
 Thu, 07 Oct 2021 04:09:53 GMT
